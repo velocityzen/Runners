@@ -46,6 +46,8 @@ runners -p gitlab -r my-group/sub/project
 
 Options: `-s/--status` to pick which run statuses to show (default `running`, `queued`, `waiting`, `pending`), `--no-jobs` to skip job details, `--forks` to include forks, `-c/--concurrency` (default 16), `--api-url` for GitHub Enterprise or self-managed GitLab, `--config` for a settings file. Flags that switch something on have a `--no-` form to override the config. `runners --help` has the rest.
 
+With `--watch`, a run that finishes stays on screen with how it ended (`✓ success in 3m 12s, 2m ago`, `✗ failure …`, `⊘ cancelled …`) until a newer run of the same workflow on the same branch takes its place, or you stop watching. A run that is re-run shows as active again.
+
 Statuses mean the same on both services: **queued** waits for a runner; **pending** waits on something else first (a concurrency group, earlier stages, a resource); **waiting** waits for a person or a timer (an approval, a manual job, a delay).
 
 ### Terminal status
@@ -53,7 +55,7 @@ Statuses mean the same on both services: **queued** waits for a runner; **pendin
 `runners` reports what it is doing to the terminal with the [Program Status Protocol](https://www.superlogical.com/rex/docs/build/program-status) (OSC 7501), through [ProgramStatus](https://github.com/velocityzen/ProgramStatus). A terminal that knows the protocol shows it; others ignore it. Reports go to the controlling terminal, so `--json` and pipes stay clean.
 
 - A check is **working** while it runs, then **done** with a summary, or **error**.
-- With `--watch`, the root record is **idle** with no active runs, **working** with some, **blocked** while one waits for approval, and **error** when a refresh fails. Each repository with active runs gets a record titled with its name, and each run one beneath it, with its jobs' progress; finished ones are cleared.
+- With `--watch`, the root record is **idle** with no active runs, **working** with some, **blocked** while one waits for approval, and **error** when a refresh fails. Each repository on screen gets a record titled with its name, and each run one beneath it, with its jobs' progress. A finished run's record keeps how it ended: **done** when it passed, **error** when it failed or timed out, **idle** when cancelled. A repository whose runs have all finished is **error** if one failed, otherwise **done**. Records go when their runs leave the screen.
 - Ctrl-C clears those records, leaves the root **idle**, and exits with 130.
 
 `--no-program-status`, or `program_status=false`, turns it off.
@@ -99,6 +101,7 @@ gitlab.host=gitlab.example.com
 | `interval` | `RUNNERS_INTERVAL` | `15` seconds; at least 5 |
 | `color` | `RUNNERS_COLOR` | on a terminal, unless `NO_COLOR` is set |
 | `program_status` | `RUNNERS_PROGRAM_STATUS` | `true` |
+| `cache` | `RUNNERS_CACHE` | `true` |
 | `github.token` | `GH_TOKEN`, `GITHUB_TOKEN` | `gh auth token` |
 | `github.api_url` | `GITHUB_API_URL` | `https://api.github.com` |
 | `gitlab.token` | `GITLAB_TOKEN`, `GITLAB_ACCESS_TOKEN` | |
@@ -119,7 +122,9 @@ On **GitHub**, `runners`:
 3. asks each remaining repository for its runs in each status (`/actions/runs?status=…`);
 4. fetches the jobs of every run it found (`/runs/{id}/jobs?filter=latest`).
 
-A first look at 83 repositories, 19 with workflows, takes about 170 requests of the 5,000/hour quota. In `--watch` mode every request carries the previous `ETag`; GitHub answers unchanged resources with `304 Not Modified`, which does not count against the quota, so later refreshes cost only what changed.
+A first look at 84 repositories, 19 with workflows, takes 163 requests of the 5,000/hour quota. Every request after that carries the `ETag` of the last answer; GitHub answers unchanged resources with `304 Not Modified`, which does not count against the quota, so later checks cost only what changed: about two requests per active run. The answers are kept in `~/Library/Caches/runners/responses.json` (`~/.cache/runners/` on Linux), readable by you only, so this holds across runs too, not just within a watch. `--no-cache`, or `cache=false`, keeps them in memory only.
+
+`--watch` also reads the repositories and which have workflows (steps 1–2) only every five minutes, so a refresh in between is 77 requests instead of 163, nearly all of them free. A repository that gets its first workflow shows within five minutes. When a run drops out of the active ones, the watch reads it once more (`/actions/runs/{id}`, plus its jobs) to learn how it ended.
 
 On **GitLab**, `runners`:
 
@@ -127,7 +132,7 @@ On **GitLab**, `runners`:
 2. asks each project once for its unfinished jobs (`/jobs?scope[]=created&scope[]=pending&scope[]=running…`), which point to its unfinished pipelines;
 3. reads each of those pipelines and its jobs.
 
-That is one request per project plus two per running pipeline. `manual` jobs are not asked for: optional ones stay `manual` in finished pipelines forever. So a pipeline blocked only by a manual job, with nothing after it, does not show.
+That is one request per project plus two per running pipeline (`--watch` lists the projects every five minutes), and in `--watch` mode two more for each pipeline when it finishes, to learn how it ended. `manual` jobs are not asked for: optional ones stay `manual` in finished pipelines forever. So a pipeline blocked only by a manual job, with nothing after it, does not show.
 
 On both, transient failures (network, 5xx, throttling) are retried with backoff, honoring `Retry-After`.
 
@@ -149,7 +154,7 @@ case .failure(let error):
 }
 ```
 
-To keep watching, read `watch`, an async sequence built on fp-swift's `withRepeat`. It takes a snapshot when you ask for the next one, at most once per `interval`; a failure is an element, not the end, and cancelling your task finishes it:
+To keep watching, read `watch`, an async sequence built on fp-swift's `withRepeat`. It takes a snapshot when you ask for the next one, at most once per `interval`; a failure is an element, not the end, and cancelling your task finishes it. A run that finishes is read once more through `CIService.latest` and stays in later snapshots with its conclusion, until a newer run of the same workflow on the same branch replaces it; `snapshot.activeRuns` and `snapshot.finishedRuns` tell them apart. The repositories are read again every `rescan` (five minutes by default), or after a failure:
 
 ```swift
 for await snapshot in monitor.watch(query, every: .seconds(15)) {
@@ -157,19 +162,25 @@ for await snapshot in monitor.watch(query, every: .seconds(15)) {
 }
 ```
 
-`TextReport` renders a snapshot the way the CLI does; `snapshot.json()` encodes it. The network sits behind `HTTPTransport`, so tests and other hosts can supply their own.
+`TextReport` renders a snapshot the way the CLI does; `snapshot.json()` encodes it. The network sits behind `HTTPTransport`, so tests and other hosts can supply their own. `ConditionalTransport` adds `ETag`s from an `ETagCache`; `ETagCache.load(from:)` and `save(to:)` keep one in a file between runs.
 
 ### Layout
 
-- `Domain/` — the shared types every service maps onto: `Owner`, `Repository`, `Run`, `Job`, `RunStatus`, `Conclusion`, `RateLimit`, `RunnersError`.
+- `Domain/` — the shared types every service maps onto: `Owner`, `Repository`, `Run`, `Job`, `RunStatus`, `Conclusion`, `RateLimit`, `RunnersError`; and `Provider`, the protocol a service describes itself with.
 - `Monitor/` — `CIService`, the protocol a service implements, and `RunsMonitor`, which drives one.
-- `Services/<Service>/` — one folder per service: its wire types, endpoints, and the mapping from its responses to the domain types.
+- `Services/<Service>/` — one folder per service: its `Provider`, its `CIService`, its wire types and endpoints, and the mapping from its responses to the domain types. `Services/Providers.swift` lists the built-in ones.
 - `HTTP/` — the shared REST client: auth headers, `Link` pagination, retries, `ETag` caching.
 - `Report/` — the terminal rendering.
 
-The CLI's `Sources/runners/Config/` merges the command line, environment, `.env` and `.runners` files into `Settings`.
+The CLI's `Sources/runners/Config/` merges the command line, environment, `.env` and `.runners` files into `Settings`. It knows providers only through the `Provider` protocol: the `provider` setting picks one by `id`, and each provider's settings join the ones `.runners` files take.
 
-To add a service, add `Services/<Service>/` with a type conforming to `CIService` and a `Provider` case, then give it token and URL keys in the CLI's `SettingKey` and `Provider+Config`.
+To add a service, add `Services/<Service>/` with a type conforming to `CIService` and one conforming to `Provider`, then list the provider in `Providers.builtIn`. The provider gives:
+
+- `id`, `name` and `repositoryTerm`: what the command line, config and reports call it;
+- `tokenSettings` and `apiURLSettings`: the settings it reads, most preferred first. `.setting("forge.token")` is `forge.token` in `.runners` and `FORGE_TOKEN` in the environment; `.environment("ci.token")` is another tool's variable, read from the environment only;
+- `defaultAPIURL`, and `apiURL(_:from:)` when a setting holds something other than a URL, such as a host;
+- `fallbackToken(apiURL:)`, for when no token is set;
+- `service(token:apiURL:transport:)`, which builds its `CIService`.
 
 ## Develop
 

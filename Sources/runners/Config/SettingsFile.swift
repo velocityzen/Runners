@@ -4,13 +4,20 @@ import Foundation
 import RunnersKit
 
 /// A `.runners` file: one `key=value` per line, with keys named as in the code (`owner`, `all_jobs`,
-/// `github.token`). Lists are comma-separated, `#` starts a comment line, and values may be quoted.
+/// and each provider's own, such as `forge.token`). Lists are comma-separated, `#` starts a
+/// comment line, and values may be quoted.
 enum SettingsFile {
     /// The settings in the file at `url`. A missing file has none, unless it is `required`.
-    static func read(_ url: URL, required: Bool) -> Result<InMemoryProvider, RunnersError> {
+    static func read(
+        _ url: URL,
+        required: Bool,
+        keys: SettingKeys
+    ) -> Result<InMemoryProvider, RunnersError> {
         text(url, required: required)
-            .flatMap { parse($0, path: url.standardizedFileURL.path(percentEncoded: false)) }
-            .map(provider)
+            .flatMap {
+                parse($0, path: url.standardizedFileURL.path(percentEncoded: false), keys: keys)
+            }
+            .map { provider($0, secret: keys.secret) }
     }
 
     static func text(_ url: URL, required: Bool) -> Result<String, RunnersError> {
@@ -23,7 +30,11 @@ enum SettingsFile {
     }
 
     /// The settings in `text`; a later line overrides an earlier one with the same key.
-    static func parse(_ text: String, path: String) -> Result<[SettingKey: String], RunnersError> {
+    static func parse(
+        _ text: String,
+        path: String,
+        keys: SettingKeys
+    ) -> Result<[SettingKey: String], RunnersError> {
         text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
             .enumerated()
             .map {
@@ -33,13 +44,14 @@ enum SettingsFile {
                 )
             }
             .filter { !$0.line.isEmpty && !$0.line.hasPrefix("#") }
-            .traverse { entry($0.line, at: $0.location) }
+            .traverse { entry($0.line, at: $0.location, keys: keys) }
             .map { Dictionary($0, uniquingKeysWith: { _, last in last }) }
     }
 
     static func entry(
         _ line: String,
-        at location: String
+        at location: String,
+        keys: SettingKeys
     ) -> Result<(SettingKey, String), RunnersError> {
         guard let separator = line.firstIndex(of: "=") else {
             return .failure(.configuration("\(location): expected key=value"))
@@ -48,8 +60,11 @@ enum SettingsFile {
         let value = unquoted(
             line[line.index(after: separator)...].trimmingCharacters(in: .whitespaces)
         )
-        return Result.fromOptional(SettingKey(fileName: name), error: unknown(name, at: location))
-            .map { ($0, value) }
+        return Result.fromOptional(
+            keys.key(fileName: name),
+            error: unknown(name, at: location, keys: keys)
+        )
+        .map { ($0, value) }
     }
 
     static func unquoted(_ value: String) -> String {
@@ -61,18 +76,21 @@ enum SettingsFile {
         return String(value.dropFirst().dropLast())
     }
 
-    static func unknown(_ name: String, at location: String) -> RunnersError {
-        let known = SettingKey.fileKeys.map(\.fileName).joined(separator: ", ")
+    static func unknown(_ name: String, at location: String, keys: SettingKeys) -> RunnersError {
+        let known = keys.inFiles.map(\.fileName).joined(separator: ", ")
         return .configuration("\(location): unknown setting \"\(name)\"; the settings are \(known)")
     }
 
-    static func provider(_ settings: [SettingKey: String]) -> InMemoryProvider {
+    static func provider(
+        _ settings: [SettingKey: String],
+        secret: Set<SettingKey>
+    ) -> InMemoryProvider {
         InMemoryProvider(
             values: Dictionary(
                 uniqueKeysWithValues: settings.map { key, value in
                     (
                         AbsoluteConfigKey(key.configKey),
-                        ConfigValue(.string(value), isSecret: key.isSecret)
+                        ConfigValue(.string(value), isSecret: secret.contains(key))
                     )
                 }
             )

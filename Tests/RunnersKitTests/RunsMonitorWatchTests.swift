@@ -7,18 +7,26 @@ import Testing
 
 @Suite("Watching")
 struct RunsMonitorWatchTests {
-    /// A service that counts its scope lookups and fails the ones `failing` names (1-based).
+    /// A service that counts its scope lookups and run listings, and fails the ones `failing`
+    /// and `failingRuns` name (1-based).
     final class CountingService: CIService {
-        let provider = Provider.github
+        let provider: any Provider = GitHubProvider()
         let failing: Set<Int>
+        let failingRuns: Set<Int>
         private let lookups = Atomic(0)
+        private let listings = Atomic(0)
 
-        init(failing: Set<Int> = []) {
+        init(failing: Set<Int> = [], failingRuns: Set<Int> = []) {
             self.failing = failing
+            self.failingRuns = failingRuns
         }
 
         var count: Int {
             lookups.load(ordering: .relaxed)
+        }
+
+        var runListings: Int {
+            listings.load(ordering: .relaxed)
         }
 
         func scope(for query: StatusQuery) async -> Result<MonitorScope, RunnersError> {
@@ -34,7 +42,12 @@ struct RunsMonitorWatchTests {
             in repositories: [Repository],
             query: StatusQuery
         ) async -> Result<[ActiveRun], RunnersError> {
-            .success([])
+            let listing = listings.add(1, ordering: .relaxed).newValue
+            return failingRuns.contains(listing) ? .failure(.notFound("octo/app")) : .success([])
+        }
+
+        func latest(_ run: ActiveRun, query: StatusQuery) async -> Result<ActiveRun, RunnersError> {
+            .success(run)
         }
 
         func rateLimit() async -> RateLimit? {
@@ -54,7 +67,38 @@ struct RunsMonitorWatchTests {
         }
         #expect(results.count == 3)
         #expect(results.filter(\.isSuccess).count == 3)
-        #expect(service.count == 3)
+        #expect(service.runListings == 3)
+        #expect(service.count == 1)
+    }
+
+    @Test("reads the repositories again once the rescan time has passed")
+    func rescan() async {
+        let service = CountingService()
+        let minute = Received()
+        let monitor = RunsMonitor(service: service) {
+            Fixtures.now.addingTimeInterval(Double(minute.count.load(ordering: .relaxed)) * 60)
+        }
+        var snapshots = monitor.watch(query, every: .milliseconds(1), rescan: .seconds(150))
+            .makeAsyncIterator()
+        for now in 0..<5 {
+            minute.count.store(now, ordering: .relaxed)
+            _ = await snapshots.next(isolation: #isolation)
+        }
+        // Minutes 0, 1 and 2 share the scope read at 0; 3 and 4 the one read at 3.
+        #expect(service.count == 2)
+        #expect(service.runListings == 5)
+    }
+
+    @Test("reads the repositories again after any failure")
+    func rescanAfterFailure() async {
+        let service = CountingService(failingRuns: [2])
+        let monitor = RunsMonitor(service: service, now: { Fixtures.now })
+        var results: [Result<StatusSnapshot, RunnersError>] = []
+        for await result in monitor.watch(query, every: .milliseconds(1)).prefix(4) {
+            results.append(result)
+        }
+        #expect(results.map(\.isSuccess) == [true, false, true, true])
+        #expect(service.count == 2)
     }
 
     @Test("keeps going after a failure")
@@ -66,6 +110,7 @@ struct RunsMonitorWatchTests {
             results.append(result)
         }
         #expect(results.map(\.isSuccess) == [false, true])
+        #expect(service.count == 2)
     }
 
     @Test("fetches only when read")

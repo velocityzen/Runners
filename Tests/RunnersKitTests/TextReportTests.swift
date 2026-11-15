@@ -15,7 +15,7 @@ struct TextReportTests {
             Fixtures.job(4, "audit", .completed, conclusion: .failure, runner: "runner-c"),
         ]
         return StatusSnapshot(
-            provider: .github,
+            provider: GitHubProvider(),
             owner: Owner(id: "1", login: "octo", kind: .user),
             repositoryCount: 12,
             runs: [
@@ -48,6 +48,32 @@ struct TextReportTests {
         #expect(lines.contains("    https://example.com/runs/7"))
     }
 
+    @Test("shows how a finished run ended, how long it took and how long ago")
+    func finished() {
+        let report = TextReport(now: Fixtures.now)
+        let run = Fixtures.run(8, .running, minutesAgo: 5).finished(.failure, minutesAgo: 2)
+        #expect(report.state(run) == "failure in 3m 00s, 2m 00s ago")
+        let lines = report.runLines(ActiveRun(repository: repository, run: run))
+        #expect(lines.first == "  ✗ CI #8  Commit 8")
+        #expect(report.state(run.with(completedAt: nil)) == "failure")
+    }
+
+    @Test("counts finished runs apart from active ones")
+    func finishedSummary() {
+        let finished = ActiveRun(
+            repository: repository,
+            run: Fixtures.run(8, .running).finished(.success)
+        )
+        #expect(
+            snapshot.with(runs: snapshot.runs + [finished]).summary
+                == "1 active run in 1 of 12 repositories · 1 finished"
+        )
+        #expect(
+            snapshot.with(runs: [finished]).summary
+                == "no active runs in 12 repositories · 1 finished"
+        )
+    }
+
     @Test("lists running, queued and failed jobs, aligned, and hides passed ones")
     func jobs() {
         let lines = lines()
@@ -74,7 +100,7 @@ struct TextReportTests {
     @Test("says so when nothing runs")
     func empty() {
         let empty = StatusSnapshot(
-            provider: .gitlab,
+            provider: GitLabProvider(),
             owner: nil,
             repositoryCount: 3,
             runs: [],

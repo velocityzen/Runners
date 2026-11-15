@@ -8,6 +8,7 @@ final class ConfigFixture {
     let root: URL
     var environment: [String: String] = [:]
     var configFile: String?
+    var providers: [any Provider] = Providers.builtIn
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appending(
@@ -53,14 +54,16 @@ final class ConfigFixture {
     }
 
     func config() async -> Result<Config, RunnersError> {
-        await sources.config()
+        await sources.config(keys: SettingKeys(providers: providers))
     }
 
     func settings(
         _ given: Overrides = Overrides(),
         isTerminal: Bool = true
     ) async -> Result<Settings, RunnersError> {
-        await config().flatMap { Settings.resolve(given, from: $0, isTerminal: isTerminal) }
+        await config().flatMap {
+            Settings.resolve(given, from: $0, providers: providers, isTerminal: isTerminal)
+        }
     }
 }
 

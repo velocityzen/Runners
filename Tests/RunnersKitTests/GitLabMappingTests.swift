@@ -138,3 +138,51 @@ struct GitLabMappingTests {
         )
     }
 }
+
+@Suite("Built-in providers")
+struct BuiltInProviderTests {
+    @Test("come GitHub first, each building a service that names it")
+    func builtIn() {
+        #expect(Providers.builtIn.map(\.id) == ["github", "gitlab"])
+        for provider in Providers.builtIn {
+            let service = provider.service(
+                token: "t",
+                apiURL: provider.defaultAPIURL,
+                transport: StubTransport { _, _ in .raw(500) }
+            )
+            #expect(service.provider.id == provider.id)
+        }
+    }
+
+    @Test("read a GitLab host or API URL, and a GitHub API URL")
+    func apiURLs() {
+        let gitlab = GitLabProvider()
+        let host = gitlab.apiURLSettings[1]
+        #expect(
+            gitlab.apiURL("gitlab.example.com", from: host)?.absoluteString
+                == "https://gitlab.example.com/api/v4"
+        )
+        #expect(
+            gitlab.apiURL("https://ci.example.com/api/v4", from: gitlab.apiURLSettings[0])?.host()
+                == "ci.example.com"
+        )
+        let github = GitHubProvider()
+        #expect(github.apiURL("not a url", from: github.apiURLSettings[0]) == nil)
+        #expect(
+            github.apiURL("https://ghe.example.com/api/v3", from: github.apiURLSettings[0]) != nil
+        )
+    }
+
+    @Test("encode the provider in JSON by id")
+    func json() throws {
+        let snapshot = StatusSnapshot(
+            provider: GitLabProvider(),
+            owner: nil,
+            repositoryCount: 0,
+            runs: [],
+            rateLimit: nil,
+            fetchedAt: Fixtures.now
+        )
+        #expect(try snapshot.json().get().contains(#""provider" : "gitlab""#))
+    }
+}

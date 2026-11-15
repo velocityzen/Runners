@@ -12,15 +12,23 @@ public struct RunsMonitor: Sendable {
     }
 
     public func snapshot(_ query: StatusQuery) async -> Result<StatusSnapshot, RunnersError> {
+        await service.scope(for: query)
+            .flatMapAsync { scope in await snapshot(query, in: scope) }
+    }
+
+    /// A snapshot of the runs in a scope read earlier.
+    public func snapshot(
+        _ query: StatusQuery,
+        in scope: MonitorScope
+    ) async -> Result<StatusSnapshot, RunnersError> {
         await ResultDo<RunnersError>()
-            .bindAsync { await service.scope(for: query) }
-            .bindAsync { scope in await service.activeRuns(in: scope.repositories, query: query) }
-            .letAsync { _, _ in await service.rateLimit() }
-            .map { scope, runs, rateLimit in
+            .bindAsync { await service.activeRuns(in: scope.repositories, query: query) }
+            .letAsync { _ in await service.rateLimit() }
+            .map { runs, rateLimit in
                 StatusSnapshot(
                     provider: service.provider,
                     owner: scope.owner,
-                    repositoryCount: scope.repositories.count,
+                    repositoryCount: scope.repositoryCount,
                     runs: ActiveRun.ordered(runs),
                     rateLimit: rateLimit,
                     fetchedAt: now()

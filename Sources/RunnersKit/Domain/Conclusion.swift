@@ -14,6 +14,15 @@ public enum Conclusion: String, Codable, Sendable, CaseIterable {
         self == .failure || self == .timedOut
     }
 
+    /// How it reads in a sentence: `timed out`, `action required`.
+    public var phrase: String {
+        switch self {
+            case .timedOut: "timed out"
+            case .actionRequired: "action required"
+            default: rawValue
+        }
+    }
+
     /// Finished with nothing to look at.
     public var hasPassed: Bool {
         self == .success || self == .skipped || self == .neutral

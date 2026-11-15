@@ -60,6 +60,29 @@ extension GitLabService {
     }
 }
 
+extension GitLabService {
+    /// A pipeline has no title of its own, so the run keeps the one it had.
+    public func latest(_ run: ActiveRun, query: StatusQuery) async -> Result<
+        ActiveRun, RunnersError
+    > {
+        guard let id = Int(run.run.id) else { return .failure(.notFound("pipeline \(run.run.id)")) }
+        let api = api
+        let project = run.repository.id
+        return await withAll(
+            await api.pipeline(id, in: project),
+            await query.includeJobs
+                ? api.jobs(ofPipeline: id, in: project).map(Optional.some) : .success(nil)
+        )
+        .map { pipeline, jobs in
+            ActiveRun(
+                repository: run.repository,
+                run: pipeline.run(title: run.run.title, actor: run.run.actor),
+                jobs: jobs?.map(\.job)
+            )
+        }
+    }
+}
+
 extension GitLabAPI {
     func activePipelines(
         in repository: Repository

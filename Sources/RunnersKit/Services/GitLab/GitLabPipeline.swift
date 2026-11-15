@@ -13,6 +13,7 @@ struct GitLabPipeline: Codable, Sendable, Hashable {
     let webURL: URL
     let createdAt: Date
     let startedAt: Date?
+    let finishedAt: Date?
     let user: GitLabUser?
 
     enum CodingKeys: String, CodingKey {
@@ -20,6 +21,7 @@ struct GitLabPipeline: Codable, Sendable, Hashable {
         case webURL = "web_url"
         case createdAt = "created_at"
         case startedAt = "started_at"
+        case finishedAt = "finished_at"
     }
 
     /// The commit title is not part of a pipeline; it comes from one of its jobs.
@@ -37,6 +39,7 @@ struct GitLabPipeline: Codable, Sendable, Hashable {
             webURL: webURL,
             createdAt: createdAt,
             startedAt: startedAt,
+            completedAt: finishedAt,
             actor: user?.username ?? actor
         )
     }

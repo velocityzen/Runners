@@ -6,7 +6,7 @@ import Foundation
 public struct GitLabService: CIService {
     let api: GitLabAPI
 
-    public var provider: Provider { .gitlab }
+    public var provider: any Provider { GitLabProvider() }
 
     public init(
         token: String,

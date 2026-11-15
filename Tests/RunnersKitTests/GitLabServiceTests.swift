@@ -51,7 +51,7 @@ struct GitLabServiceTests {
         let (result, stub) = await snapshot(gitlab)
         let snapshot = try result.get()
 
-        #expect(snapshot.provider == .gitlab)
+        #expect(snapshot.provider.id == "gitlab")
         #expect(snapshot.owner == Owner(id: "50", login: "acme", kind: .organization))
         #expect(snapshot.repositoryCount == 3)
         #expect(snapshot.runs.map(\.repository.fullName) == ["acme/api", "acme/frontend/web"])
@@ -160,5 +160,30 @@ struct GitLabServiceTests {
 
         #expect(try result.get().runs.allSatisfy { $0.jobs == nil })
         #expect(!stub.paths.contains { $0.contains("/pipelines/") && $0.hasSuffix("/jobs") })
+    }
+}
+
+@Suite("GitLab latest run")
+struct GitLabLatestTests {
+    @Test("reads a pipeline that dropped out, keeping its title")
+    func latest() async throws {
+        var gitlab = FakeGitLab()
+        gitlab.pipelines[42] = GitLabFixtures.pipeline(42, "success", finishedMinutesAgo: 1)
+        let service = GitLabService(
+            token: "t",
+            transport: gitlab.transport(),
+            retryPolicy: .limitRetries(0)
+        )
+        let repository = Fixtures.repository("acme/api", id: "5")
+        let before = ActiveRun(
+            repository: repository,
+            run: GitLabFixtures.pipeline(42, "running").run(title: "Fix it", actor: "octo")
+        )
+        let after = try await service.latest(before, query: StatusQuery(includeJobs: false)).get()
+        #expect(after.run.status == .completed)
+        #expect(after.run.conclusion == .success)
+        #expect(after.run.title == "Fix it")
+        #expect(after.run.completedAt == Fixtures.minutesAgo(1))
+        #expect(after.jobs == nil)
     }
 }

@@ -6,7 +6,7 @@ import Foundation
 public struct GitHubService: CIService {
     let api: GitHubAPI
 
-    public var provider: Provider { .github }
+    public var provider: any Provider { GitHubProvider() }
 
     public init(
         token: String,

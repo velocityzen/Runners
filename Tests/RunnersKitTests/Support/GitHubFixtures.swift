@@ -28,9 +28,13 @@ enum GitHubFixtures {
         )
     }
 
-    static func run(_ id: Int, _ status: String, minutesAgo minutes: Double = 5)
-        -> GitHubWorkflowRun
-    {
+    static func run(
+        _ id: Int,
+        _ status: String,
+        minutesAgo minutes: Double = 5,
+        conclusion: String? = nil,
+        updatedMinutesAgo updated: Double = 1
+    ) -> GitHubWorkflowRun {
         GitHubWorkflowRun(
             id: id,
             name: "CI",
@@ -39,12 +43,13 @@ enum GitHubFixtures {
             runAttempt: 1,
             event: "push",
             status: status,
-            conclusion: nil,
+            conclusion: conclusion,
             headBranch: "main",
             headSHA: "abc\(id)",
             htmlURL: Fixtures.url("https://github.com/octo/repo/actions/runs/\(id)"),
             createdAt: Fixtures.minutesAgo(minutes),
             runStartedAt: Fixtures.minutesAgo(minutes),
+            updatedAt: Fixtures.minutesAgo(updated),
             actor: me
         )
     }
@@ -79,6 +84,8 @@ struct FakeGitHub: Sendable {
     var workflowCounts: [String: Int] = [:]
     /// Runs by repository full name, then GitHub status.
     var runs: [String: [String: [GitHubWorkflowRun]]] = [:]
+    /// Runs by id, for reading one run.
+    var runsByID: [Int: GitHubWorkflowRun] = [:]
     var jobs: [Int: [GitHubWorkflowJob]] = [:]
     var rateLimit: GitHubRateLimit? = GitHubFixtures.rateLimit
     /// Answers every request for runs with this instead.
@@ -118,6 +125,8 @@ struct FakeGitHub: Sendable {
                             workflowRuns: runs[fullName]?[request.query("status") ?? ""] ?? []
                         )
                     )
+            case let resource where resource.hasPrefix("actions/runs/") && rest.count == 3:
+                Int(rest.last ?? "").flatMap { runsByID[$0] }.map { .json($0) } ?? .notFound
             case let resource where resource.hasSuffix("/jobs"):
                 .json(
                     GitHubWorkflowJobsPage(

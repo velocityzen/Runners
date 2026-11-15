@@ -3,8 +3,9 @@ import RunnersKit
 
 /// The name of a setting.
 ///
-/// The environment and `.env` spell it in capitals with underscores: `RUNNERS_ALL_JOBS`, `GITHUB_TOKEN`.
-/// `.runners` files spell it as here, without the `runners.` prefix: `all_jobs`, `github.token`.
+/// The environment and `.env` spell it in capitals with underscores: `RUNNERS_ALL_JOBS`, and a
+/// provider's `forge.token` as `FORGE_TOKEN`. `.runners` files spell it as here, without the
+/// `runners.` prefix: `all_jobs`, `forge.token`.
 struct SettingKey: Hashable, Sendable, ExpressibleByStringLiteral, CustomStringConvertible {
     let name: String
 
@@ -12,10 +13,8 @@ struct SettingKey: Hashable, Sendable, ExpressibleByStringLiteral, CustomStringC
         self.name = name
     }
 
-    /// The key a `.runners` file spells this way.
-    init?(fileName: String) {
-        guard let key = Self.fileKeys.first(where: { $0.fileName == fileName }) else { return nil }
-        self = key
+    init(_ setting: ProviderSetting) {
+        name = setting.name
     }
 
     var configKey: ConfigKey {
@@ -28,10 +27,6 @@ struct SettingKey: Hashable, Sendable, ExpressibleByStringLiteral, CustomStringC
 
     var fileName: String {
         name.hasPrefix(Self.prefix) ? String(name.dropFirst(Self.prefix.count)) : name
-    }
-
-    var isSecret: Bool {
-        name.hasSuffix("token")
     }
 
     var description: String {
@@ -58,21 +53,13 @@ extension SettingKey {
     static let interval: SettingKey = "runners.interval"
     static let color: SettingKey = "runners.color"
     static let programStatus: SettingKey = "runners.program_status"
+    static let cache: SettingKey = "runners.cache"
     static let noColor: SettingKey = "no_color"
 
-    static let ghToken: SettingKey = "gh.token"
-    static let gitHubToken: SettingKey = "github.token"
-    static let gitHubAPIURL: SettingKey = "github.api_url"
-
-    static let gitLabToken: SettingKey = "gitlab.token"
-    static let gitLabAccessToken: SettingKey = "gitlab.access_token"
-    static let gitLabHost: SettingKey = "gitlab.host"
-    static let gitLabCIAPIURL: SettingKey = "ci.api_v4_url"
-
-    /// What a `.runners` file may set. The other keys are environment conventions of other tools.
-    static let fileKeys: [SettingKey] = [
+    /// The settings of `runners` itself that a `.runners` file may set; each provider adds its
+    /// own. `no_color` is another tool's convention, so only the environment sets it.
+    static let common: [SettingKey] = [
         .provider, .owner, .repositories, .status, .jobs, .allJobs, .forks, .concurrency, .interval,
-        .color, .programStatus,
-        .gitHubToken, .gitHubAPIURL, .gitLabToken, .gitLabHost,
+        .color, .programStatus, .cache,
     ]
 }

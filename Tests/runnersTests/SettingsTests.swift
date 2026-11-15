@@ -9,7 +9,7 @@ struct SettingsTests {
     @Test("falls back to defaults")
     func defaults() async throws {
         let settings = try await ConfigFixture().settings().get()
-        #expect(settings.provider == .github)
+        #expect(settings.provider.id == "github")
         #expect(settings.apiURL == GitHubService.defaultBaseURL)
         #expect(settings.token == nil)
         #expect(settings.query == StatusQuery(target: .authenticatedUser))
@@ -37,7 +37,7 @@ struct SettingsTests {
             """
         )
         let settings = try await fixture.settings().get()
-        #expect(settings.provider == .gitlab)
+        #expect(settings.provider.id == "gitlab")
         #expect(settings.apiURL.absoluteString == "https://gitlab.example.com/api/v4")
         #expect(settings.token == "glpat-file")
         #expect(
@@ -62,7 +62,7 @@ struct SettingsTests {
             "provider=gitlab\nowner=octo\nstatus=running\njobs=false\nconcurrency=4\ninterval=60"
         )
         var given = Overrides()
-        given.provider = .github
+        given.provider = "github"
         given.repositories = ["octo/app"]
         given.statuses = [.queued]
         given.jobs = true
@@ -70,7 +70,7 @@ struct SettingsTests {
         given.interval = 5
         given.apiURL = "https://ghe.example.com/api/v3"
         let settings = try await fixture.settings(given).get()
-        #expect(settings.provider == .github)
+        #expect(settings.provider.id == "github")
         #expect(settings.apiURL.absoluteString == "https://ghe.example.com/api/v3")
         #expect(
             settings.query
@@ -135,7 +135,7 @@ struct SettingsTests {
         ]
         #expect(try await fixture.settings().get().token == "gh")
         var given = Overrides()
-        given.provider = .gitlab
+        given.provider = "gitlab"
         #expect(try await fixture.settings(given).get().token == "gitlab")
     }
 
@@ -175,5 +175,27 @@ struct SettingsTests {
         var given = Overrides()
         given.programStatus = true
         #expect(try await fixture.settings(given).get().display.reportsProgramStatus)
+    }
+
+    @Test("keeps responses between runs unless the config or the command line turns it off")
+    func cache() async throws {
+        let fixture = try ConfigFixture()
+        #expect(try await fixture.settings().get().cachesResponses)
+        try fixture.global("cache=no")
+        #expect(try await !fixture.settings().get().cachesResponses)
+        var given = Overrides()
+        given.cache = true
+        #expect(try await fixture.settings(given).get().cachesResponses)
+    }
+
+    @Test("starts with an empty response cache when it is off or its file is unreadable")
+    func unreadableCache() throws {
+        let fixture = try ConfigFixture()
+        let file = fixture.home.appending(path: "responses.json")
+        try Data("not json".utf8).write(to: file)
+        let cache = ResponseCache.load(enabled: true, file: file)
+        #expect(cache.file == file)
+        #expect(cache.cache.count == 0)
+        #expect(ResponseCache.load(enabled: false, file: file).file == nil)
     }
 }

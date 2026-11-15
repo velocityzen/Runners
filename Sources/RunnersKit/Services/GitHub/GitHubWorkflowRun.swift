@@ -15,6 +15,7 @@ struct GitHubWorkflowRun: Codable, Sendable, Hashable {
     let htmlURL: URL
     let createdAt: Date
     let runStartedAt: Date?
+    let updatedAt: Date?
     let actor: GitHubAccount?
 
     enum CodingKeys: String, CodingKey {
@@ -27,6 +28,7 @@ struct GitHubWorkflowRun: Codable, Sendable, Hashable {
         case htmlURL = "html_url"
         case createdAt = "created_at"
         case runStartedAt = "run_started_at"
+        case updatedAt = "updated_at"
     }
 
     var run: Run {
@@ -44,6 +46,8 @@ struct GitHubWorkflowRun: Codable, Sendable, Hashable {
             webURL: htmlURL,
             createdAt: createdAt,
             startedAt: runStartedAt,
+            // A finished run changes no more, so its last update is when it finished.
+            completedAt: status == "completed" ? updatedAt : nil,
             actor: actor?.login
         )
     }

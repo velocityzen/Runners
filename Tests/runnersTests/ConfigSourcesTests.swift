@@ -33,8 +33,8 @@ struct ConfigSourcesTests {
         #expect(config.list(.status) == ["running", "queued"])
         #expect(config.text(.allJobs) == "yes")
         #expect(config.text(.concurrency) == "4")
-        #expect(config.text(.gitHubToken) == "from-file")
-        #expect(config.text(.gitHubAPIURL) == "https://ghe.example.com/api/v3?x=1")
+        #expect(config.text("github.token") == "from-file")
+        #expect(config.text("github.api_url") == "https://ghe.example.com/api/v3?x=1")
     }
 
     @Test("lets a later line override an earlier one")

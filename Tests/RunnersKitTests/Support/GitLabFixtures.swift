@@ -26,9 +26,12 @@ enum GitLabFixtures {
         )
     }
 
-    static func pipeline(_ id: Int, _ status: String, minutesAgo minutes: Double = 5)
-        -> GitLabPipeline
-    {
+    static func pipeline(
+        _ id: Int,
+        _ status: String,
+        minutesAgo minutes: Double = 5,
+        finishedMinutesAgo finished: Double? = nil
+    ) -> GitLabPipeline {
         GitLabPipeline(
             id: id,
             iid: id % 100,
@@ -40,6 +43,7 @@ enum GitLabFixtures {
             webURL: Fixtures.url("https://gitlab.com/acme/api/-/pipelines/\(id)"),
             createdAt: Fixtures.minutesAgo(minutes),
             startedAt: Fixtures.minutesAgo(minutes),
+            finishedAt: finished.map(Fixtures.minutesAgo),
             user: nil
         )
     }

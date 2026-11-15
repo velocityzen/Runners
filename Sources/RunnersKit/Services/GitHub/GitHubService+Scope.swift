@@ -17,7 +17,7 @@ extension GitHubService {
 
             case .repositories(let names):
                 await repositories(names, concurrency: query.concurrency)
-                    .map { MonitorScope(owner: nil, repositories: $0) }
+                    .flatMapAsync { await withWorkflows($0, owner: nil, query: query) }
         }
     }
 
@@ -36,7 +36,28 @@ extension GitHubService {
     ) async -> Result<MonitorScope, RunnersError> {
         await api.repositories(listing)
             .map { $0.filter { $0.canRunWorkflows(includingForks: query.includeForks) } }
-            .map { MonitorScope(owner: owner.owner, repositories: $0.map(\.repository)) }
+            .flatMapAsync {
+                await withWorkflows($0.map(\.repository), owner: owner.owner, query: query)
+            }
+    }
+
+    /// The scope of the repositories that have workflows, counting all of them.
+    func withWorkflows(
+        _ repositories: [Repository],
+        owner: Owner?,
+        query: StatusQuery
+    ) async -> Result<MonitorScope, RunnersError> {
+        let api = api
+        return await repositories.traverseAsync(concurrency: query.concurrency) { repository in
+            await api.ifHasWorkflows(repository)
+        }
+        .map { found in
+            MonitorScope(
+                owner: owner,
+                repositories: found.compactMap { $0 },
+                repositoryCount: repositories.count
+            )
+        }
     }
 
     func repositories(

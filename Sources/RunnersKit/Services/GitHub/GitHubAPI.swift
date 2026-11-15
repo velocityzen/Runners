@@ -71,6 +71,12 @@ struct GitHubAPI: Sendable {
         )
     }
 
+    func workflowRun(in fullName: String, id: String) async -> Result<
+        GitHubWorkflowRun, RunnersError
+    > {
+        await client.value(Self.repositoryPath(fullName) + ["actions", "runs", id])
+    }
+
     /// The jobs of a run's latest attempt.
     func jobs(in fullName: String, runID: String) async -> Result<[GitHubWorkflowJob], RunnersError>
     {

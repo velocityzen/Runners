@@ -12,8 +12,8 @@ struct GitHubRunListing: Sendable {
 }
 
 extension GitHubService {
-    /// Skips repositories without workflows, then fans out over every repository × status, then
-    /// over every run for its jobs.
+    /// Fans out over every repository × status, then over every run for its jobs. The scope
+    /// has already left out repositories without workflows.
     public func activeRuns(
         in repositories: [Repository],
         query: StatusQuery
@@ -22,10 +22,6 @@ extension GitHubService {
         let statuses = query.statuses.flatMap(\.gitHubQueryValues)
         return await Pipe<ActiveRun, RunnersError> {
             From(repositories)
-            AsyncFlatMap(concurrency: query.concurrency) { (repository: Repository) in
-                await api.ifHasWorkflows(repository)
-            }
-            CompactMap { (repository: Repository?) in repository }
             FlatMapSequence { (repository: Repository) in
                 GitHubRunListing.all(repository, statuses: statuses)
             }
@@ -40,6 +36,17 @@ extension GitHubService {
             }
         }
         .toResult()
+    }
+}
+
+extension GitHubService {
+    public func latest(_ run: ActiveRun, query: StatusQuery) async -> Result<
+        ActiveRun, RunnersError
+    > {
+        let api = api
+        return await api.workflowRun(in: run.repository.fullName, id: run.run.id)
+            .map { ActiveRun(repository: run.repository, run: $0.run) }
+            .flatMapAsync { query.includeJobs ? await api.withJobs($0) : .success($0) }
     }
 }
 

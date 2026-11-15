@@ -19,6 +19,8 @@ public struct Run: Codable, Sendable, Hashable, Identifiable {
     public let webURL: URL
     public let createdAt: Date
     public let startedAt: Date?
+    /// When it finished; nil while it runs.
+    public let completedAt: Date?
     /// The handle of who started it.
     public let actor: String?
 
@@ -36,6 +38,7 @@ public struct Run: Codable, Sendable, Hashable, Identifiable {
         webURL: URL,
         createdAt: Date,
         startedAt: Date? = nil,
+        completedAt: Date? = nil,
         actor: String? = nil
     ) {
         self.id = id
@@ -51,6 +54,7 @@ public struct Run: Codable, Sendable, Hashable, Identifiable {
         self.webURL = webURL
         self.createdAt = createdAt
         self.startedAt = startedAt
+        self.completedAt = completedAt
         self.actor = actor
     }
 
@@ -59,5 +63,6 @@ public struct Run: Codable, Sendable, Hashable, Identifiable {
         case webURL = "web_url"
         case createdAt = "created_at"
         case startedAt = "started_at"
+        case completedAt = "completed_at"
     }
 }

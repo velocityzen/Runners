@@ -11,7 +11,7 @@ struct ProgramStatusTests {
 
     @Test("reports a one-off check as working, then done or failed")
     func check() {
-        #expect(StatusReport.checking(.gitlab) == .working("Checking CI runs on GitLab"))
+        #expect(StatusReport.checking(GitLabProvider()) == .working("Checking CI runs on GitLab"))
         let snapshot = Snapshots.snapshot([Snapshots.active(app, 7)])
         #expect(
             StatusReport.checked(.success(snapshot))
@@ -82,6 +82,59 @@ struct ProgramStatusTests {
     }
 
     @Test(
+        "maps how a finished run ended to a state",
+        arguments: [
+            (Conclusion.success, StatusReport.State.done),
+            (.skipped, .done),
+            (.failure, .error),
+            (.timedOut, .error),
+            (.cancelled, .idle),
+            (.actionRequired, .blocked(kind: .permission)),
+        ]
+    )
+    func finished(conclusion: Conclusion, state: StatusReport.State) {
+        #expect(StatusReport.state(Snapshots.finished(app, 7, conclusion)) == state)
+    }
+
+    @Test("keeps how a finished run ended in its record")
+    func finishedRun() {
+        let report = StatusReport.run(Snapshots.finished(app, 7, .timedOut))
+        #expect(report.message == "timed out · main · Fix the build")
+        #expect(report.state == .error)
+    }
+
+    @Test("counts finished runs in the repository record, and fails it when one failed")
+    func finishedRepository() throws {
+        let runs = [
+            Snapshots.active(app, 7), Snapshots.finished(app, 8, .failure),
+            Snapshots.finished(app, 9, .success),
+        ]
+        let working = try #require(Snapshots.snapshot(runs).byRepository.first)
+        #expect(
+            StatusReport.repository(working)
+                == .working("1 active · 1 failed · 1 finished", id: "101", title: "octo/app")
+        )
+        let ended = try #require(Snapshots.snapshot(Array(runs.dropFirst())).byRepository.first)
+        #expect(
+            StatusReport.repository(ended)
+                == .error("1 failed · 1 finished", id: "101", title: "octo/app")
+        )
+        let passed = try #require(Snapshots.snapshot([runs[2]]).byRepository.first)
+        #expect(
+            StatusReport.repository(passed) == .done("1 finished", id: "101", title: "octo/app")
+        )
+    }
+
+    @Test("is idle when only finished runs are on show")
+    func onlyFinished() {
+        let snapshot = Snapshots.snapshot([Snapshots.finished(app, 7, .success)])
+        #expect(
+            StatusReport.watching(snapshot)
+                == .idle("octo on GitHub: no active runs in 12 repositories · 1 finished")
+        )
+    }
+
+    @Test(
         "makes record ids out of any id",
         arguments: [("octo/app", "octo_app"), ("", "_"), ("ünï", "_n_")]
     )
@@ -102,6 +155,7 @@ struct ProgramStatusTests {
         let snapshot = Snapshots.snapshot([
             Snapshots.active(Snapshots.repository("octo/app", id: "octo/app"), 7, .waiting),
             Snapshots.active(web, 8, jobs: [Snapshots.job(1, .running)]),
+            Snapshots.finished(web, 9, .actionRequired),
         ])
         var records = StatusRecords()
         let reports = records.update(.success(snapshot)) + [.checked(.success(snapshot)), .stopped]

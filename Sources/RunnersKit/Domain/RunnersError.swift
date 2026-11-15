@@ -18,6 +18,8 @@ public enum RunnersError: LocalizedError, Sendable, Equatable {
     case unexpectedStatus(Int, message: String)
     case decoding(String)
     case encoding(String)
+    /// The response cache on disk could not be read or written.
+    case cache(String)
 
     public var errorDescription: String? {
         switch self {
@@ -39,6 +41,7 @@ public enum RunnersError: LocalizedError, Sendable, Equatable {
                 "Unexpected response \(status): \(message)"
             case .decoding(let reason): "Could not read the response: \(reason)"
             case .encoding(let reason): "Could not encode output: \(reason)"
+            case .cache(let reason): "Response cache: \(reason)"
         }
     }
 

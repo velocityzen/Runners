@@ -4,12 +4,14 @@ import RunnersKit
 
 /// Everything a status check needs: the command line first, then the config, then defaults.
 struct Settings: Sendable {
-    let provider: Provider
+    let provider: any Provider
     let apiURL: URL
-    /// The configured token; nil leaves it to the provider's fallback, such as `gh`.
+    /// The configured token; nil leaves it to the provider's fallback.
     let token: String?
     let query: StatusQuery
     let display: Display
+    /// Whether to keep API responses on disk between runs.
+    let cachesResponses: Bool
 
     /// How results are shown and reported.
     struct Display: Sendable, Equatable {
@@ -21,32 +23,44 @@ struct Settings: Sendable {
         let reportsProgramStatus: Bool
     }
 
+    /// The settings for one of `providers`, the first being the default.
     static func load(
         _ given: Overrides,
-        configFile: String?
+        configFile: String?,
+        providers: [any Provider]
     ) async -> Result<Settings, RunnersError> {
         await ConfigSources.current(configFile: configFile)
-            .config()
-            .flatMap { resolve(given, from: $0, isTerminal: isatty(STDOUT_FILENO) != 0) }
+            .config(keys: SettingKeys(providers: providers))
+            .flatMap {
+                resolve(
+                    given,
+                    from: $0,
+                    providers: providers,
+                    isTerminal: isatty(STDOUT_FILENO) != 0
+                )
+            }
     }
 
     static func resolve(
         _ given: Overrides,
         from config: Config,
+        providers: [any Provider],
         isTerminal: Bool
     ) -> Result<Settings, RunnersError> {
         ResultDo<RunnersError>()
-            .bind { provider(given, config) }
+            .bind { providers.choice(given.provider, in: config) }
             .bind { provider in provider.apiURL(given.apiURL, in: config) }
             .bind { _, _ in query(given, config) }
             .bind { _, _, _ in display(given, config, isTerminal: isTerminal) }
-            .map { provider, apiURL, query, display in
+            .bind { _, _, _, _ in config.flag(given.cache, .cache, default: true) }
+            .map { provider, apiURL, query, display, cachesResponses in
                 Settings(
                     provider: provider,
                     apiURL: apiURL,
                     token: provider.token(in: config),
                     query: query,
-                    display: display
+                    display: display,
+                    cachesResponses: cachesResponses
                 )
             }
     }
@@ -73,8 +87,10 @@ struct Settings: Sendable {
     }
 
     /// The service to ask, with the configured token or else the provider's fallback.
-    func service() async -> Result<any CIService, RunnersError> {
-        await resolvedToken().map { provider.service(token: $0, apiURL: apiURL) }
+    func service(cache: ETagCache) async -> Result<any CIService, RunnersError> {
+        let transport = ConditionalTransport(URLSessionTransport(), cache: cache)
+        return await resolvedToken()
+            .map { provider.service(token: $0, apiURL: apiURL, transport: transport) }
     }
 
     func resolvedToken() async -> Result<String, RunnersError> {
@@ -84,12 +100,6 @@ struct Settings: Sendable {
 }
 
 extension Settings {
-    static func provider(_ given: Overrides, _ config: Config) -> Result<Provider, RunnersError> {
-        config.value(given.provider, .provider, default: .github, expected: "github or gitlab") {
-            Provider(rawValue: $0.lowercased())
-        }
-    }
-
     static func query(_ given: Overrides, _ config: Config) -> Result<StatusQuery, RunnersError> {
         flatten(
             given.target.map(Result.success) ?? target(config),
@@ -137,7 +147,7 @@ extension Settings {
             : .failure(
                 SettingKey.repositories.invalid(
                     name,
-                    expected: "owner/name, or group/…/project on GitLab"
+                    expected: "owner/name, or group/…/name"
                 )
             )
     }

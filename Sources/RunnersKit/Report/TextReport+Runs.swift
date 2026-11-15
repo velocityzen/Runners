@@ -26,9 +26,8 @@ extension TextReport {
 
     func details(_ active: ActiveRun) -> String {
         let run = active.run
-        let since = run.status == .running ? run.startedAt ?? run.createdAt : run.createdAt
         return [
-            "\(run.status.phrase) \(Elapsed.format(now.timeIntervalSince(since)))",
+            state(run),
             run.branch,
             run.trigger,
             run.actor.map { "@\($0)" },
@@ -36,6 +35,19 @@ extension TextReport {
         ]
         .compactMap { $0 }
         .joined(separator: " · ")
+    }
+
+    /// `running 2m 13s`, `queued 5s`; for a finished run `success in 3m 12s, 2m ago`.
+    func state(_ run: Run) -> String {
+        guard run.status == .completed else {
+            let since = run.status == .running ? run.startedAt ?? run.createdAt : run.createdAt
+            return "\(run.status.phrase) \(Elapsed.format(now.timeIntervalSince(since)))"
+        }
+        let outcome = run.conclusion?.phrase ?? "finished"
+        guard let completedAt = run.completedAt else { return outcome }
+        let took =
+            Elapsed.between(run.startedAt ?? run.createdAt, completedAt).map { " in \($0)" } ?? ""
+        return "\(outcome)\(took), \(Elapsed.format(now.timeIntervalSince(completedAt))) ago"
     }
 
     /// `7/12 jobs done`, or nothing before any job exists.

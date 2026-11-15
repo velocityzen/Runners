@@ -4,13 +4,15 @@ import Synchronization
 /// Sends `If-None-Match` for URLs it has seen and answers `304 Not Modified` from its cache.
 ///
 /// GitHub does not count 304 responses against the rate limit, so repeated refreshes only pay
-/// for what changed. Servers that send no `ETag` are passed through untouched.
+/// for what changed. Servers that send no `ETag` are passed through untouched. Share an
+/// ``ETagCache`` saved to disk to carry that across runs.
 public struct ConditionalTransport<Base: HTTPTransport>: HTTPTransport {
     let base: Base
-    let cache = ETagCache()
+    let cache: ETagCache
 
-    public init(_ base: Base) {
+    public init(_ base: Base, cache: ETagCache = ETagCache()) {
         self.base = base
+        self.cache = cache
     }
 
     public func send(_ request: HTTPRequest) async -> Result<HTTPResponse, RunnersError> {
@@ -26,41 +28,6 @@ extension HTTPRequest {
         var request = self
         request.headers["If-None-Match"] = etag
         return request
-    }
-}
-
-/// Responses by URL, with the ETag the server sent for each.
-final class ETagCache: Sendable {
-    struct Entry: Sendable {
-        let etag: String
-        let response: HTTPResponse
-    }
-
-    /// Enough for every repository and run of a large organization; cleared when exceeded.
-    static let capacity = 4_096
-
-    private let entries = Mutex<[URL: Entry]>([:])
-
-    subscript(url: URL) -> Entry? {
-        entries.withLock { $0[url] }
-    }
-
-    /// Swaps a 304 for the cached response, and caches a fresh response that has an ETag.
-    func resolve(_ response: HTTPResponse, for url: URL, cached: Entry?) -> HTTPResponse {
-        if response.status == 304, let cached {
-            return cached.response.refreshed(with: response.headers)
-        }
-        if response.isSuccess, let etag = response.header("etag") {
-            store(Entry(etag: etag, response: response), for: url)
-        }
-        return response
-    }
-
-    private func store(_ entry: Entry, for url: URL) {
-        entries.withLock { entries in
-            if entries.count >= Self.capacity { entries.removeAll() }
-            entries[url] = entry
-        }
     }
 }
 

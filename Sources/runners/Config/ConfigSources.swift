@@ -25,11 +25,14 @@ struct ConfigSources: Sendable {
         )
     }
 
-    func config() async -> Result<Config, RunnersError> {
+    /// The settings in every source. Files may set only the `keys` they know.
+    func config(keys: SettingKeys) async -> Result<Config, RunnersError> {
         await ResultDo<RunnersError>()
             .bindAsync { await Self.environmentFile(directory.appending(path: ".env")) }
-            .bind { _ in SettingsFile.read(localFile, required: configFile != nil) }
-            .bind { _, _ in SettingsFile.read(home.appending(path: ".runners"), required: false) }
+            .bind { _ in SettingsFile.read(localFile, required: configFile != nil, keys: keys) }
+            .bind { _, _ in
+                SettingsFile.read(home.appending(path: ".runners"), required: false, keys: keys)
+            }
             .map { dotEnv, local, global in
                 Config(sources: [
                     ConfigReader(

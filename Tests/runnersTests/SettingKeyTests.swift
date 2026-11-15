@@ -1,3 +1,4 @@
+import RunnersKit
 import Testing
 
 @testable import runners
@@ -9,9 +10,12 @@ struct SettingKeyTests {
         arguments: [
             (SettingKey.allJobs, "RUNNERS_ALL_JOBS", "all_jobs"),
             (.repositories, "RUNNERS_REPOS", "repos"),
-            (.gitHubAPIURL, "GITHUB_API_URL", "github.api_url"),
-            (.gitLabAccessToken, "GITLAB_ACCESS_TOKEN", "gitlab.access_token"),
-            (.gitLabCIAPIURL, "CI_API_V4_URL", "ci.api_v4_url"),
+            (SettingKey(GitHubProvider().apiURLSettings[0]), "GITHUB_API_URL", "github.api_url"),
+            (
+                SettingKey(GitLabProvider().tokenSettings[1]), "GITLAB_ACCESS_TOKEN",
+                "gitlab.access_token"
+            ),
+            (SettingKey(GitLabProvider().apiURLSettings[0]), "CI_API_V4_URL", "ci.api_v4_url"),
             (.noColor, "NO_COLOR", "no_color"),
         ]
     )

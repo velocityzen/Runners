@@ -1,4 +1,5 @@
-/// A run that has not finished, with its repository and, when asked for, its jobs.
+/// A run with its repository and, when asked for, its jobs. Unfinished, except for the finished
+/// runs a watch keeps on show.
 public struct ActiveRun: Codable, Sendable, Hashable, Identifiable {
     public let repository: Repository
     public let run: Run

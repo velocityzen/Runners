@@ -43,7 +43,7 @@ struct GitHubServiceTests {
         let (result, stub) = await snapshot(github)
         let snapshot = try result.get()
 
-        #expect(snapshot.provider == .github)
+        #expect(snapshot.provider.id == "github")
         #expect(snapshot.owner == Owner(id: "1", login: "octo", kind: .user))
         #expect(snapshot.repositoryCount == 2)
         #expect(snapshot.runs.map(\.run.id) == ["2", "1"])
@@ -163,5 +163,35 @@ struct GitHubServiceTests {
         github.rateLimit = nil
 
         #expect(try await snapshot(github).0.get().rateLimit == nil)
+    }
+}
+
+@Suite("GitHub latest run")
+struct GitHubLatestTests {
+    @Test("reads a run that dropped out, with when it finished and its jobs")
+    func latest() async throws {
+        var github = FakeGitHub()
+        github.runsByID[1] = GitHubFixtures.run(
+            1,
+            "completed",
+            conclusion: "failure",
+            updatedMinutesAgo: 1
+        )
+        github.jobs[1] = [GitHubFixtures.job(10, "test", "completed")]
+        let service = GitHubService(
+            token: "t",
+            transport: github.transport(),
+            retryPolicy: .limitRetries(0)
+        )
+        let repository = Fixtures.repository("octo/repo")
+        let before = ActiveRun(
+            repository: repository,
+            run: GitHubFixtures.run(1, "in_progress").run
+        )
+        let after = try await service.latest(before, query: StatusQuery()).get()
+        #expect(after.run.status == .completed)
+        #expect(after.run.conclusion == .failure)
+        #expect(after.run.completedAt == Fixtures.minutesAgo(1))
+        #expect(after.jobs?.map(\.name) == ["test"])
     }
 }

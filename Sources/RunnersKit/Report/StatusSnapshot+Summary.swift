@@ -4,15 +4,29 @@ extension StatusSnapshot {
         owner.map { "\($0.login) on \(provider.name)" } ?? provider.name
     }
 
-    /// `2 active runs in 1 of 12 repositories`, or `no active runs in 12 repositories`.
+    /// `2 active runs in 1 of 12 repositories`, or `no active runs in 12 repositories`, then
+    /// ` · 3 finished` when a watch keeps finished runs on show.
     public var summary: String {
         let term = provider.repositoryTerm
         let repositories = counted(repositoryCount, term.singular, term.plural)
-        guard !runs.isEmpty else { return "no active runs in \(repositories)" }
-        return "\(counted(runs.count, "active run")) in \(byRepository.count) of \(repositories)"
+        let active = activeRuns
+        let activity =
+            active.isEmpty
+            ? "no active runs in \(repositories)"
+            : "\(counted(active.count, "active run")) in \(Set(active.map(\.repository.id)).count) of \(repositories)"
+        let finished = finishedRuns.count
+        return finished == 0 ? activity : "\(activity) · \(finished) finished"
     }
 
-    /// The runs waiting for a person or a timer.
+    public var activeRuns: [ActiveRun] {
+        runs.filter { !$0.isFinished }
+    }
+
+    public var finishedRuns: [ActiveRun] {
+        runs.filter(\.isFinished)
+    }
+
+    /// The unfinished runs waiting for a person or a timer.
     public var waitingRuns: [ActiveRun] {
         runs.filter { $0.run.status == .waiting }
     }

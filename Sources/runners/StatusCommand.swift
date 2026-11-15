@@ -12,23 +12,30 @@ struct StatusCommand: AsyncParsableCommand {
 
     @Argument(
         help:
-            "User, organization or GitLab group to check. Defaults to the user the token belongs to."
+            "User, organization or group to check. Defaults to the user the token belongs to."
     )
     var owner: String?
 
-    @Option(name: .shortAndLong, help: "CI service to ask. (default: github)")
-    var provider: Provider?
+    @Option(
+        name: .shortAndLong,
+        help: ArgumentHelp(
+            "CI service to ask: \(Providers.builtIn.idList). (default: \(Providers.builtIn[0].id))",
+            valueName: "provider"
+        ),
+        completion: .list(Providers.builtIn.map(\.id))
+    )
+    var provider: String?
 
     @Option(
         name: [.customShort("r"), .customLong("repo")],
-        help: "Check only this repository (owner/name; GitLab: group/…/project). Repeat for more."
+        help: "Check only this repository (owner/name, or group/…/name). Repeat for more."
     )
     var repositories: [String] = []
 
     @Option(
         name: .shortAndLong,
         help:
-            "Run status to show. Repeat for more. On GitHub each costs a request per repository. (default: all active)"
+            "Run status to show. Repeat for more. (default: all active)"
     )
     var status: [RunStatus] = []
 
@@ -75,9 +82,16 @@ struct StatusCommand: AsyncParsableCommand {
     )
     var programStatus: Bool?
 
+    @Flag(
+        inversion: .prefixedNo,
+        help:
+            "Keep API responses between runs, so unchanged ones cost no quota. (default: --cache)"
+    )
+    var cache: Bool?
+
     @Option(
         name: .customLong("api-url"),
-        help: "API base URL, for GitHub Enterprise or self-managed GitLab."
+        help: "API base URL, for a self-hosted instance. (default: the provider's public service)"
     )
     var apiURL: String?
 
@@ -85,6 +99,9 @@ struct StatusCommand: AsyncParsableCommand {
     var configFile: String?
 
     func validate() throws {
+        if let provider, Providers.builtIn.named(provider) == nil {
+            throw ValidationError("--provider takes \(Providers.builtIn.idList).")
+        }
         if let concurrency, !(1...32).contains(concurrency) {
             throw ValidationError("--concurrency must be between 1 and 32.")
         }
@@ -96,7 +113,7 @@ struct StatusCommand: AsyncParsableCommand {
         }
         guard repositories.allSatisfy(StatusQuery.Target.isFullName) else {
             throw ValidationError(
-                "--repo takes the full name: owner/name, or group/…/project on GitLab."
+                "--repo takes the full name: owner/name, or group/…/name."
             )
         }
         guard !(json && watch) else {
@@ -105,16 +122,23 @@ struct StatusCommand: AsyncParsableCommand {
     }
 
     func run() async throws {
-        let settings = try await Settings.load(overrides, configFile: configFile).get()
+        let settings = try await Settings.load(
+            overrides,
+            configFile: configFile,
+            providers: Providers.builtIn
+        )
+        .get()
+        let cache = ResponseCache.load(enabled: settings.cachesResponses)
         let session = StatusSession(
-            monitor: RunsMonitor(service: try await settings.service().get()),
+            monitor: RunsMonitor(service: try await settings.service(cache: cache.cache).get()),
             settings: settings,
             output: Output(
                 json: json,
                 colored: settings.display.colored,
                 showsPassedJobs: settings.display.showsPassedJobs
             ),
-            status: TerminalStatus(enabled: settings.display.reportsProgramStatus)
+            status: TerminalStatus(enabled: settings.display.reportsProgramStatus),
+            cache: cache
         )
         let watches = watch
         let signals = await processSignals(Interruption.signals)
@@ -144,6 +168,7 @@ struct StatusCommand: AsyncParsableCommand {
             interval: interval,
             color: color,
             programStatus: programStatus,
+            cache: cache,
             apiURL: apiURL
         )
     }

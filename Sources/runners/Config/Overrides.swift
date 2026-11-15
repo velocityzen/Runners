@@ -2,7 +2,7 @@ import RunnersKit
 
 /// What the command line sets. `nil` or empty means not given, which leaves it to the config.
 struct Overrides: Sendable {
-    var provider: Provider?
+    var provider: String?
     var owner: String?
     var repositories: [String] = []
     var statuses: [RunStatus] = []
@@ -13,6 +13,7 @@ struct Overrides: Sendable {
     var interval: Int?
     var color: Bool?
     var programStatus: Bool?
+    var cache: Bool?
     var apiURL: String?
 
     /// The owner or repositories given, if any.
@@ -23,7 +24,7 @@ struct Overrides: Sendable {
 }
 
 extension StatusQuery.Target {
-    /// `owner/name`, or `group/…/project` on GitLab.
+    /// `owner/name`, or `group/…/name` where groups nest.
     static func isFullName(_ name: String) -> Bool {
         let parts = name.split(separator: "/", omittingEmptySubsequences: false)
         return parts.count >= 2 && parts.allSatisfy { !$0.isEmpty }

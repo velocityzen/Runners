@@ -2,60 +2,47 @@ import FP
 import Foundation
 import RunnersKit
 
-/// Where each service's token and API URL come from, and how to build the service.
+/// How any provider's settings are read: its token and API URL from the settings it names.
 extension Provider {
-    /// Keys holding a token. In each source the first one set wins.
-    var tokenKeys: [SettingKey] {
-        switch self {
-            case .github: [.ghToken, .gitHubToken]
-            case .gitlab: [.gitLabToken, .gitLabAccessToken]
-        }
-    }
-
     func token(in config: Config) -> String? {
-        config.text(tokenKeys, isSecret: true)?.value
+        config.text(tokenSettings.map(SettingKey.init), isSecret: true)?.value
     }
 
-    /// The URL given on the command line, else the configured one, else the public service's.
+    /// The URL given on the command line, else the first configured one, else the public
+    /// service's.
     func apiURL(_ given: String?, in config: Config) -> Result<URL, RunnersError> {
         if let given { return Settings.url(given) }
-        switch self {
-            case .github:
-                return config.text([.gitHubAPIURL]).map(Self.apiURL)
-                    ?? .success(GitHubService.defaultBaseURL)
-            case .gitlab:
-                return config.text([.gitLabCIAPIURL, .gitLabHost]).map(Self.apiURL)
-                    ?? .success(GitLabService.defaultBaseURL)
+        guard let (key, value) = config.text(apiURLSettings.map(SettingKey.init)),
+            let setting = apiURLSettings.first(where: { SettingKey($0) == key })
+        else {
+            return .success(defaultAPIURL)
         }
+        return .fromOptional(
+            apiURL(value, from: setting),
+            error: key.invalid(value, expected: "a URL")
+        )
+    }
+}
+
+extension Array where Element == any Provider {
+    /// The provider given on the command line, else the configured one, else the first.
+    func choice(_ given: String?, in config: Config) -> Result<any Provider, RunnersError> {
+        guard let fallback = first else {
+            return .failure(.configuration("there are no CI providers to choose from"))
+        }
+        guard let id = given ?? config.text(.provider) else { return .success(fallback) }
+        return .fromOptional(
+            named(id),
+            error: SettingKey.provider.invalid(id, expected: idList)
+        )
     }
 
-    /// A configured API URL. `gitlab.host` takes a host or a URL, as `glab` does.
-    static func apiURL(_ setting: (key: SettingKey, value: String)) -> Result<URL, RunnersError> {
-        let url =
-            setting.key == .gitLabHost
-            ? GitLabService.apiURL(forHost: setting.value)
-            : Settings.url(setting.value).map(Optional.some).getOrElse(nil)
-        return .fromOptional(url, error: setting.key.invalid(setting.value, expected: "a URL"))
+    func named(_ id: String) -> (any Provider)? {
+        first { $0.id == id.lowercased() }
     }
 
-    /// The token to use when none is configured.
-    func fallbackToken(apiURL: URL) async -> Result<String, RunnersError> {
-        switch self {
-            case .github:
-                await GHCLI.token(hostname: GHCLI.hostname(forAPI: apiURL))
-            case .gitlab:
-                .failure(
-                    .tokenUnavailable(
-                        "set GITLAB_TOKEN to a personal access token with the read_api scope"
-                    )
-                )
-        }
-    }
-
-    func service(token: String, apiURL: URL) -> any CIService {
-        switch self {
-            case .github: GitHubService(token: token, baseURL: apiURL)
-            case .gitlab: GitLabService(token: token, baseURL: apiURL)
-        }
+    /// `github or gitlab`
+    var idList: String {
+        map(\.id).formatted(.list(type: .or))
     }
 }

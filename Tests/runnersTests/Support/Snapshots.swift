@@ -28,6 +28,28 @@ enum Snapshots {
         )
     }
 
+    /// A run that ended a minute ago, after four minutes.
+    static func finished(
+        _ repository: Repository,
+        _ id: Int,
+        _ conclusion: Conclusion
+    ) -> ActiveRun {
+        let run = Run(
+            id: String(id),
+            name: "CI",
+            title: "Fix the build",
+            number: id,
+            status: .completed,
+            conclusion: conclusion,
+            branch: "main",
+            webURL: url,
+            createdAt: now.addingTimeInterval(-300),
+            startedAt: now.addingTimeInterval(-300),
+            completedAt: now.addingTimeInterval(-60)
+        )
+        return ActiveRun(repository: repository, run: run)
+    }
+
     static func job(_ id: Int, _ status: RunStatus) -> Job {
         Job(id: String(id), name: "job \(id)", status: status)
     }
@@ -43,7 +65,7 @@ enum Snapshots {
 
     static func snapshot(_ runs: [ActiveRun], repositories: Int = 12) -> StatusSnapshot {
         StatusSnapshot(
-            provider: .github,
+            provider: GitHubProvider(),
             owner: Owner(id: "1", login: "octo", kind: .organization),
             repositoryCount: repositories,
             runs: runs,
