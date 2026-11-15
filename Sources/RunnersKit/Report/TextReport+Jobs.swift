@@ -3,7 +3,7 @@ import Foundation
 extension TextReport {
     /// One aligned line per job: mark, name, time, then the runner (or, while queued, the
     /// labels it waits for).
-    func jobLines(_ jobs: [WorkflowJob]) -> [String] {
+    func jobLines(_ jobs: [Job]) -> [String] {
         let rows = jobs.map(JobRow.init(job:))
         let nameWidth = rows.map(\.name.count).max() ?? 0
         let timeWidth = rows.map { time($0.job).count }.max() ?? 0
@@ -20,51 +20,46 @@ extension TextReport {
     }
 
     /// Jobs still going, and finished ones that need a look.
-    func visibleJobs(_ jobs: [WorkflowJob]) -> [WorkflowJob] {
+    func visibleJobs(_ jobs: [Job]) -> [Job] {
         showsPassedJobs ? jobs : jobs.filter { !$0.hasPassed }
     }
 
     /// How long it ran, is running, or has waited.
-    func time(_ job: WorkflowJob) -> String {
+    func time(_ job: Job) -> String {
         switch job.status {
             case .completed: Elapsed.between(job.startedAt, job.completedAt ?? now) ?? ""
-            case .inProgress: Elapsed.between(job.startedAt, now) ?? ""
-            default: job.status.phrase + (Elapsed.between(job.createdAt, now).map { " \($0)" } ?? "")
+            case .running: Elapsed.between(job.startedAt, now) ?? ""
+            default:
+                job.status.phrase + (Elapsed.between(job.createdAt, now).map { " \($0)" } ?? "")
         }
     }
 
-    func runner(_ job: WorkflowJob) -> String {
+    func runner(_ job: Job) -> String {
         switch job.status {
-            case .inProgress:
-                [job.runnerName, job.currentStep.map { "→ \($0.name)" }]
+            case .running:
+                [job.runner, job.currentStep.map { "→ \($0)" }]
                     .compactMap { $0 }
                     .joined(separator: " ")
-            case .completed: job.runnerName ?? ""
+            case .completed: job.runner ?? ""
             default: job.labels.joined(separator: ", ")
         }
     }
 }
 
-/// A job with its name cut to fit a column.
+/// A job with its name, prefixed by its stage where there is one, cut to fit a column.
 struct JobRow {
     static let maxNameLength = 48
 
-    let job: WorkflowJob
+    let job: Job
     let name: String
 
-    init(job: WorkflowJob) {
+    init(job: Job) {
+        let name = job.stage.map { "\($0) › \(job.name)" } ?? job.name
         self.job = job
         self.name =
-            job.name.count > Self.maxNameLength
-            ? job.name.prefix(Self.maxNameLength - 1) + "…"
-            : job.name
-    }
-}
-
-extension WorkflowJob {
-    /// Finished with nothing to look at.
-    var hasPassed: Bool {
-        status == .completed && [.success, .skipped, .neutral].contains(conclusion)
+            name.count > Self.maxNameLength
+            ? name.prefix(Self.maxNameLength - 1) + "…"
+            : name
     }
 }
 

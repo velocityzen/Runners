@@ -4,7 +4,7 @@ import Synchronization
 /// Sends `If-None-Match` for URLs it has seen and answers `304 Not Modified` from its cache.
 ///
 /// GitHub does not count 304 responses against the rate limit, so repeated refreshes only pay
-/// for what changed.
+/// for what changed. Servers that send no `ETag` are passed through untouched.
 public struct ConditionalTransport<Base: HTTPTransport>: HTTPTransport {
     let base: Base
     let cache = ETagCache()
@@ -13,7 +13,7 @@ public struct ConditionalTransport<Base: HTTPTransport>: HTTPTransport {
         self.base = base
     }
 
-    public func send(_ request: HTTPRequest) async -> Result<HTTPResponse, GitHubError> {
+    public func send(_ request: HTTPRequest) async -> Result<HTTPResponse, RunnersError> {
         let cached = cache[request.url]
         return await base.send(request.conditional(on: cached?.etag))
             .map { cache.resolve($0, for: request.url, cached: cached) }
@@ -29,7 +29,7 @@ extension HTTPRequest {
     }
 }
 
-/// Responses by URL, with the ETag GitHub sent for each.
+/// Responses by URL, with the ETag the server sent for each.
 final class ETagCache: Sendable {
     struct Entry: Sendable {
         let etag: String

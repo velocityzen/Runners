@@ -6,29 +6,48 @@ import RunnersKit
 struct StatusCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "status",
-        abstract: "Show the running, queued and waiting workflow runs of a user or organization."
+        abstract: "Show the running, queued and waiting CI runs of a user, organization or group."
     )
 
-    @Argument(help: "User or organization to check. Defaults to the user the token belongs to.")
+    @Argument(
+        help:
+            "User, organization or GitLab group to check. Defaults to the user the token belongs to."
+    )
     var owner: String?
 
-    @Option(name: [.customShort("r"), .customLong("repo")], help: "Check only this repository (owner/name). Repeat for more.")
+    @Option(name: .shortAndLong, help: "CI service to ask. (default: github)")
+    var provider: Provider?
+
+    @Option(
+        name: [.customShort("r"), .customLong("repo")],
+        help: "Check only this repository (owner/name; GitLab: group/…/project). Repeat for more."
+    )
     var repositories: [String] = []
 
-    @Option(name: .shortAndLong, help: "Run status to look for. Repeat for more. Each costs one request per repository with workflows.")
-    var status: [ActionStatus] = ActionStatus.active
+    @Option(
+        name: .shortAndLong,
+        help:
+            "Run status to show. Repeat for more. On GitHub each costs a request per repository. (default: all active)"
+    )
+    var status: [RunStatus] = []
 
-    @Flag(inversion: .prefixedNo, help: "Fetch the jobs of each run.")
-    var jobs = true
+    @Flag(inversion: .prefixedNo, help: "Fetch the jobs of each run. (default: --jobs)")
+    var jobs: Bool?
 
-    @Flag(help: "List jobs that already passed too, not just their count.")
-    var allJobs = false
+    @Flag(
+        inversion: .prefixedNo,
+        help: "List jobs that already passed too, not just their count. (default: --no-all-jobs)"
+    )
+    var allJobs: Bool?
 
-    @Flag(help: "Include forked repositories.")
-    var forks = false
+    @Flag(inversion: .prefixedNo, help: "Include forked repositories. (default: --no-forks)")
+    var forks: Bool?
 
-    @Option(name: .shortAndLong, help: "Maximum number of API requests at the same time.")
-    var concurrency = 16
+    @Option(
+        name: .shortAndLong,
+        help: "Maximum number of API requests at the same time, 1–32. (default: 16)"
+    )
+    var concurrency: Int?
 
     @Flag(help: "Print the snapshot as JSON.")
     var json = false
@@ -36,27 +55,41 @@ struct StatusCommand: AsyncParsableCommand {
     @Flag(name: .shortAndLong, help: "Refresh until interrupted.")
     var watch = false
 
-    @Option(name: .shortAndLong, help: "Seconds between refreshes with --watch.")
-    var interval = 15
+    @Option(
+        name: .shortAndLong,
+        help: "Seconds between refreshes with --watch, at least 5. (default: 15)"
+    )
+    var interval: Int?
 
-    @Flag(help: "Do not color the output.")
-    var noColor = false
+    @Flag(
+        inversion: .prefixedNo,
+        help: "Color the output. (default: when printing to a terminal and NO_COLOR is unset)"
+    )
+    var color: Bool?
 
-    @Option(name: .customLong("api-url"), help: "GitHub API base URL, for GitHub Enterprise. Defaults to $GITHUB_API_URL, then https://api.github.com.")
+    @Option(
+        name: .customLong("api-url"),
+        help: "API base URL, for GitHub Enterprise or self-managed GitLab."
+    )
     var apiURL: String?
 
+    @Option(name: .customLong("config"), help: "Settings file to read instead of ./.runners.")
+    var configFile: String?
+
     func validate() throws {
-        guard (1...32).contains(concurrency) else {
+        if let concurrency, !(1...32).contains(concurrency) {
             throw ValidationError("--concurrency must be between 1 and 32.")
         }
-        guard interval >= 5 else {
+        if let interval, interval < 5 {
             throw ValidationError("--interval must be at least 5 seconds.")
         }
         guard owner == nil || repositories.isEmpty else {
             throw ValidationError("Pass an owner or --repo, not both.")
         }
-        guard repositories.allSatisfy(Self.isFullName) else {
-            throw ValidationError("--repo takes owner/name.")
+        guard repositories.allSatisfy(StatusQuery.Target.isFullName) else {
+            throw ValidationError(
+                "--repo takes the full name: owner/name, or group/…/project on GitLab."
+            )
         }
         guard !(json && watch) else {
             throw ValidationError("--json and --watch cannot be combined.")
@@ -64,17 +97,25 @@ struct StatusCommand: AsyncParsableCommand {
     }
 
     func run() async throws {
-        let settings = try await Settings.load(apiURL: apiURL).get()
-        let monitor = ActionsMonitor(client: GitHubClient(token: settings.token, baseURL: settings.apiURL))
-        let output = Output(json: json, colored: !noColor && settings.colorAllowed, showsPassedJobs: allJobs)
+        let settings = try await Settings.load(overrides, configFile: configFile).get()
+        let monitor = RunsMonitor(service: try await settings.service().get())
+        let output = Output(
+            json: json,
+            colored: settings.colored,
+            showsPassedJobs: settings.showsPassedJobs
+        )
 
         if watch {
-            try await Watch(interval: .seconds(interval)) {
-                await monitor.snapshot(query).match(output.screen, output.screen)
+            let screens =
+                monitor
+                .watch(settings.query, every: .seconds(settings.interval))
+                .map(output.screen(for:))
+
+            for await screen in screens {
+                Screen.redraw(screen)
             }
-            .run()
         } else {
-            try await monitor.snapshot(query)
+            try await monitor.snapshot(settings.query)
                 .flatMap(output.render)
                 .tap { print($0) }
                 .asUnit()
@@ -82,23 +123,19 @@ struct StatusCommand: AsyncParsableCommand {
         }
     }
 
-    var query: StatusQuery {
-        StatusQuery(
-            target: target,
+    var overrides: Overrides {
+        Overrides(
+            provider: provider,
+            owner: owner,
+            repositories: repositories,
             statuses: status,
-            includeJobs: jobs,
-            includeForks: forks,
-            concurrency: concurrency
+            jobs: jobs,
+            allJobs: allJobs,
+            forks: forks,
+            concurrency: concurrency,
+            interval: interval,
+            color: color,
+            apiURL: apiURL
         )
-    }
-
-    var target: StatusQuery.Target {
-        if !repositories.isEmpty { return .repositories(repositories) }
-        return owner.map(StatusQuery.Target.owner) ?? .authenticatedUser
-    }
-
-    static func isFullName(_ name: String) -> Bool {
-        let parts = name.split(separator: "/", omittingEmptySubsequences: false)
-        return parts.count == 2 && parts.allSatisfy { !$0.isEmpty }
     }
 }

@@ -3,10 +3,10 @@ struct StatusMark: Sendable, Equatable {
     let symbol: String
     let color: ANSIColor
 
-    static func of(_ status: ActionStatus, _ conclusion: Conclusion?) -> StatusMark {
+    static func of(_ status: RunStatus, _ conclusion: Conclusion?) -> StatusMark {
         switch status {
-            case .inProgress: StatusMark(symbol: "●", color: .yellow)
-            case .queued, .requested: StatusMark(symbol: "○", color: .cyan)
+            case .running: StatusMark(symbol: "●", color: .yellow)
+            case .queued: StatusMark(symbol: "○", color: .cyan)
             case .pending: StatusMark(symbol: "○", color: .blue)
             case .waiting: StatusMark(symbol: "◇", color: .magenta)
             case .completed: of(conclusion)
@@ -19,19 +19,9 @@ struct StatusMark: Sendable, Equatable {
             case .success: StatusMark(symbol: "✓", color: .green)
             case .actionRequired: StatusMark(symbol: "!", color: .yellow)
             case .cancelled: StatusMark(symbol: "⊘", color: .dim)
-            case .skipped, .neutral, .stale: StatusMark(symbol: "–", color: .dim)
+            case .skipped, .neutral: StatusMark(symbol: "–", color: .dim)
             case let conclusion? where conclusion.isFailure: StatusMark(symbol: "✗", color: .red)
             default: StatusMark(symbol: "•", color: .dim)
-        }
-    }
-}
-
-extension ActionStatus {
-    /// How a status reads in a sentence.
-    var phrase: String {
-        switch self {
-            case .inProgress: "running"
-            default: rawValue
         }
     }
 }

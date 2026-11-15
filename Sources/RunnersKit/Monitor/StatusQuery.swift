@@ -3,15 +3,15 @@ public struct StatusQuery: Sendable, Equatable {
     public enum Target: Sendable, Equatable {
         /// Every repository the token's user owns.
         case authenticatedUser
-        /// Every repository of a user or organization.
+        /// Every repository of a user or organization (GitLab: group, subgroups included).
         case owner(String)
-        /// These repositories, by `owner/name`.
+        /// These repositories, by full name.
         case repositories([String])
     }
 
     public var target: Target
-    /// Run statuses to look for; each costs one request per repository.
-    public var statuses: [ActionStatus]
+    /// Run statuses to report.
+    public var statuses: [RunStatus]
     public var includeJobs: Bool
     public var includeForks: Bool
     /// How many requests may run at the same time.
@@ -19,7 +19,7 @@ public struct StatusQuery: Sendable, Equatable {
 
     public init(
         target: Target = .authenticatedUser,
-        statuses: [ActionStatus] = ActionStatus.active,
+        statuses: [RunStatus] = RunStatus.active,
         includeJobs: Bool = true,
         includeForks: Bool = false,
         concurrency: Int = 16

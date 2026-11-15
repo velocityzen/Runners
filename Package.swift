@@ -11,6 +11,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.8.2"),
         .package(url: "https://github.com/apple/swift-configuration", from: "1.5.0"),
+        .package(url: "https://github.com/apple/swift-system", from: "1.6.0"),
         .package(url: "https://github.com/velocityzen/fp-swift", from: "4.4.2"),
         .package(url: "https://github.com/velocityzen/fp-swift-pipe", from: "2.4.1"),
     ],
@@ -30,7 +31,17 @@ let package = Package(
                 "RunnersKit",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Configuration", package: "swift-configuration"),
+                .product(name: "SystemPackage", package: "swift-system"),
                 .product(name: "FP", package: "fp-swift"),
+            ],
+            swiftSettings: callerIsolation
+        ),
+        .testTarget(
+            name: "runnersTests",
+            dependencies: [
+                "runners",
+                "RunnersKit",
+                .product(name: "Configuration", package: "swift-configuration"),
             ],
             swiftSettings: callerIsolation
         ),

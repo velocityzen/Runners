@@ -18,16 +18,19 @@ public struct TextReport: Sendable {
             .joined(separator: "\n")
     }
 
-    /// `octo · 2 active runs in 1 of 12 repositories · 10:42:13`; no owner for a repository list.
+    /// `octo on GitHub · 2 active runs in 1 of 12 repositories · 10:42:13`
     func header(_ snapshot: StatusSnapshot) -> String {
-        let repositories = plural(snapshot.repositoryCount, "repository", "repositories")
+        let term = snapshot.provider.repositoryTerm
+        let repositories = plural(snapshot.repositoryCount, term.singular, term.plural)
         let counts =
             snapshot.runs.isEmpty
             ? "no active runs in \(repositories)"
             : "\(plural(snapshot.runs.count, "active run")) in \(snapshot.byRepository.count) of \(repositories)"
         let time = snapshot.fetchedAt.formatted(date: .omitted, time: .standard)
-        let summary = style.paint("\(counts) · \(time)", .dim)
-        return snapshot.owner.map { style.paint($0.login, .bold) + style.paint(" · ", .dim) + summary } ?? summary
+        let scope =
+            snapshot.owner.map { "\($0.login) on \(snapshot.provider.name)" }
+            ?? snapshot.provider.name
+        return style.paint(scope, .bold) + style.paint(" · \(counts) · \(time)", .dim)
     }
 
     func body(_ snapshot: StatusSnapshot) -> [String] {
@@ -37,7 +40,8 @@ public struct TextReport: Sendable {
     func footer(_ snapshot: StatusSnapshot) -> [String] {
         guard let limit = snapshot.rateLimit else { return [] }
         let reset = limit.resetAt.formatted(date: .omitted, time: .shortened)
-        let text = "API quota \(limit.remaining.formatted())/\(limit.limit.formatted()) · resets \(reset)"
+        let text =
+            "API quota \(limit.remaining.formatted())/\(limit.limit.formatted()) · resets \(reset)"
         return ["", style.paint(text, .dim)]
     }
 

@@ -1,6 +1,6 @@
 import Foundation
 
-/// A GET request: GitHub's read API needs nothing more.
+/// A GET request: the read APIs this library uses need nothing more.
 public struct HTTPRequest: Sendable, Hashable {
     public var url: URL
     public var headers: [String: String]
@@ -33,15 +33,9 @@ public struct HTTPResponse: Sendable, Equatable {
     public var isSuccess: Bool {
         (200..<300).contains(status)
     }
-
-    var rateLimitReset: Date? {
-        header("x-ratelimit-reset")
-            .flatMap(TimeInterval.init)
-            .map(Date.init(timeIntervalSince1970:))
-    }
 }
 
-/// The seam between the GitHub client and the network. Tests replace it with canned responses.
+/// The seam between the API clients and the network. Tests replace it with canned responses.
 public protocol HTTPTransport: Sendable {
-    func send(_ request: HTTPRequest) async -> Result<HTTPResponse, GitHubError>
+    func send(_ request: HTTPRequest) async -> Result<HTTPResponse, RunnersError>
 }

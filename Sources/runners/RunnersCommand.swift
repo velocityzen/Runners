@@ -4,7 +4,8 @@ import ArgumentParser
 struct RunnersCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "runners",
-        abstract: "Watch GitHub Actions across every repository of a user or organization.",
+        abstract:
+            "Watch CI runs across every repository of a user, organization or group on GitHub and GitLab.",
         subcommands: [StatusCommand.self],
         defaultSubcommand: StatusCommand.self
     )

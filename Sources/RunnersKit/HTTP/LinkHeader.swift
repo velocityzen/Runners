@@ -1,6 +1,6 @@
 import Foundation
 
-/// Reads GitHub's pagination `Link` header:
+/// Reads the pagination `Link` header GitHub and GitLab send:
 /// `<https://api.github.com/…&page=2>; rel="next", <…>; rel="last"`.
 enum LinkHeader {
     static func next(in header: String?) -> URL? {

@@ -6,7 +6,7 @@ import Foundation
 #endif
 
 extension HTTPResponse {
-    static func from(_ loaded: (Data, URLResponse)) -> Result<HTTPResponse, GitHubError> {
+    static func from(_ loaded: (Data, URLResponse)) -> Result<HTTPResponse, RunnersError> {
         Result.fromOptional(loaded.1 as? HTTPURLResponse, error: .transport("not an HTTP response"))
             .map { HTTPResponse(status: $0.statusCode, headers: $0.stringHeaders, body: loaded.0) }
     }

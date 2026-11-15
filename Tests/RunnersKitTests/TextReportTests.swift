@@ -5,19 +5,26 @@ import Testing
 
 @Suite("Text report")
 struct TextReportTests {
-    let repository = Fixtures.repository("app")
+    let repository = Fixtures.repository("octo/app")
 
     var snapshot: StatusSnapshot {
         let jobs = [
             Fixtures.job(1, "lint", .completed, conclusion: .success, runner: "runner-a"),
-            Fixtures.job(2, "test", .inProgress, runner: "runner-b", step: "Run tests"),
+            Fixtures.job(2, "test", .running, runner: "runner-b", step: "Run tests"),
             Fixtures.job(3, "deploy", .queued, labels: ["self-hosted", "linux"]),
             Fixtures.job(4, "audit", .completed, conclusion: .failure, runner: "runner-c"),
         ]
         return StatusSnapshot(
-            owner: Fixtures.me,
+            provider: .github,
+            owner: Owner(id: "1", login: "octo", kind: .user),
             repositoryCount: 12,
-            runs: [ActiveRun(repository: repository, run: Fixtures.run(7, .inProgress, minutesAgo: 5), jobs: jobs)],
+            runs: [
+                ActiveRun(
+                    repository: repository,
+                    run: Fixtures.run(7, .running, minutesAgo: 5),
+                    jobs: jobs
+                )
+            ],
             rateLimit: Fixtures.rateLimit,
             fetchedAt: Fixtures.now
         )
@@ -29,7 +36,7 @@ struct TextReportTests {
 
     @Test("summarizes the snapshot in the header")
     func header() {
-        #expect(lines()[0].hasPrefix("octo · 1 active run in 1 of 12 repositories · "))
+        #expect(lines()[0].hasPrefix("octo on GitHub · 1 active run in 1 of 12 repositories · "))
     }
 
     @Test("describes each run")
@@ -38,7 +45,7 @@ struct TextReportTests {
         #expect(lines.contains("octo/app"))
         #expect(lines.contains("  ● CI #7  Commit 7"))
         #expect(lines.contains("    running 5m 00s · main · push · @octo · 2/4 jobs done"))
-        #expect(lines.contains("    https://github.com/octo/repo/actions/runs/7"))
+        #expect(lines.contains("    https://example.com/runs/7"))
     }
 
     @Test("lists running, queued and failed jobs, aligned, and hides passed ones")
@@ -58,21 +65,51 @@ struct TextReportTests {
 
     @Test("shows the remaining API quota")
     func footer() {
-        #expect(lines().last?.hasPrefix("API quota \(4_321.formatted())/\(5_000.formatted()) · resets ") == true)
+        #expect(
+            lines().last?.hasPrefix("API quota \(4_321.formatted())/\(5_000.formatted()) · resets ")
+                == true
+        )
     }
 
     @Test("says so when nothing runs")
     func empty() {
-        let empty = StatusSnapshot(owner: nil, repositoryCount: 3, runs: [], rateLimit: nil, fetchedAt: Fixtures.now)
+        let empty = StatusSnapshot(
+            provider: .gitlab,
+            owner: nil,
+            repositoryCount: 3,
+            runs: [],
+            rateLimit: nil,
+            fetchedAt: Fixtures.now
+        )
         let text = TextReport(now: Fixtures.now).render(empty)
-        #expect(text.hasPrefix("no active runs in 3 repositories · "))
+        #expect(text.hasPrefix("GitLab · no active runs in 3 projects · "))
         #expect(!text.contains("\n"))
+    }
+
+    @Test("prefixes job names with their stage")
+    func stages() {
+        let jobs = [
+            Fixtures.job(1, "rspec 1/2", .running, stage: "test", runner: "shared-1"),
+            Fixtures.job(2, "deploy", .pending, stage: "deploy", labels: ["docker"]),
+        ]
+        let lines = TextReport(now: Fixtures.now).jobLines(jobs)
+
+        #expect(
+            lines == [
+                "    ● test › rspec 1/2 2m 00s         shared-1",
+                "    ○ deploy › deploy  pending 3m 00s docker",
+            ]
+        )
     }
 
     @Test("colors only when asked")
     func colors() {
         #expect(!TextReport(style: .plain, now: Fixtures.now).render(snapshot).contains("\u{1B}["))
-        #expect(TextReport(style: .colored, now: Fixtures.now).render(snapshot).contains("\u{1B}[33m●\u{1B}[0m"))
+        #expect(
+            TextReport(style: .colored, now: Fixtures.now).render(snapshot).contains(
+                "\u{1B}[33m●\u{1B}[0m"
+            )
+        )
     }
 
     @Test(

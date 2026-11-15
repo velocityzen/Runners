@@ -23,7 +23,12 @@ final class StubTransport: HTTPTransport {
         requests.map { $0.url.path() }
     }
 
-    func send(_ request: HTTPRequest) async -> Result<HTTPResponse, GitHubError> {
+    /// Paths as sent, with escapes such as `%2F` kept.
+    var encodedPaths: [String] {
+        requests.map { $0.url.path(percentEncoded: true) }
+    }
+
+    func send(_ request: HTTPRequest) async -> Result<HTTPResponse, RunnersError> {
         let attempt = log.withLock { log in
             defer { log.append(request) }
             return log.count { $0.url == request.url }
@@ -34,20 +39,25 @@ final class StubTransport: HTTPTransport {
 
 extension HTTPRequest {
     func query(_ name: String) -> String? {
-        URLComponents(url: url, resolvingAgainstBaseURL: false)?
-            .queryItems?
-            .first { $0.name == name }?
-            .value
+        queryValues(name).first
+    }
+
+    func queryValues(_ name: String) -> [String] {
+        (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+            .filter { $0.name == name }
+            .compactMap(\.value)
     }
 }
 
 extension HTTPResponse {
     static func json(_ value: some Encodable, headers: [String: String] = [:]) -> HTTPResponse {
-        let body = (try? GitHubJSON.encoder.encode(value)) ?? Data()
+        let body = (try? JSONCoding.encoder.encode(value)) ?? Data()
         return HTTPResponse(status: 200, headers: headers, body: body)
     }
 
-    static func raw(_ status: Int, _ body: String = "", headers: [String: String] = [:]) -> HTTPResponse {
+    static func raw(_ status: Int, _ body: String = "", headers: [String: String] = [:])
+        -> HTTPResponse
+    {
         HTTPResponse(status: status, headers: headers, body: Data(body.utf8))
     }
 

@@ -20,12 +20,12 @@ public struct URLSessionTransport: HTTPTransport {
         return URLSession(configuration: configuration)
     }
 
-    public func send(_ request: HTTPRequest) async -> Result<HTTPResponse, GitHubError> {
+    public func send(_ request: HTTPRequest) async -> Result<HTTPResponse, RunnersError> {
         await load(request.urlRequest)
             .flatMap(HTTPResponse.from)
     }
 
-    private func load(_ request: URLRequest) async -> Result<(Data, URLResponse), GitHubError> {
+    private func load(_ request: URLRequest) async -> Result<(Data, URLResponse), RunnersError> {
         await Result.fromAsync { try await session.data(for: request) }
             .mapError { .transport($0.localizedDescription) }
     }
