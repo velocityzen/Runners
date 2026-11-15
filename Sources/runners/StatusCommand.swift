@@ -1,6 +1,7 @@
 import ArgumentParser
 import FP
 import Foundation
+import ProcessSignals
 import RunnersKit
 
 struct StatusCommand: AsyncParsableCommand {
@@ -67,6 +68,13 @@ struct StatusCommand: AsyncParsableCommand {
     )
     var color: Bool?
 
+    @Flag(
+        inversion: .prefixedNo,
+        help:
+            "Report status to the terminal with the Program Status Protocol (OSC 7501). (default: --program-status)"
+    )
+    var programStatus: Bool?
+
     @Option(
         name: .customLong("api-url"),
         help: "API base URL, for GitHub Enterprise or self-managed GitLab."
@@ -98,28 +106,28 @@ struct StatusCommand: AsyncParsableCommand {
 
     func run() async throws {
         let settings = try await Settings.load(overrides, configFile: configFile).get()
-        let monitor = RunsMonitor(service: try await settings.service().get())
-        let output = Output(
-            json: json,
-            colored: settings.colored,
-            showsPassedJobs: settings.showsPassedJobs
+        let session = StatusSession(
+            monitor: RunsMonitor(service: try await settings.service().get()),
+            settings: settings,
+            output: Output(
+                json: json,
+                colored: settings.display.colored,
+                showsPassedJobs: settings.display.showsPassedJobs
+            ),
+            status: TerminalStatus(enabled: settings.display.reportsProgramStatus)
         )
+        let watches = watch
+        let signals = await processSignals(Interruption.signals)
 
-        if watch {
-            let screens =
-                monitor
-                .watch(settings.query, every: .seconds(settings.interval))
-                .map(output.screen(for:))
-
-            for await screen in screens {
-                Screen.redraw(screen)
-            }
-        } else {
-            try await monitor.snapshot(settings.query)
-                .flatMap(output.render)
-                .tap { print($0) }
-                .asUnit()
-                .get()
+        switch await Interruption.race(
+            { await watches ? session.watch() : session.check() },
+            until: signals
+        ) {
+            case .finished(let result):
+                try result.get()
+            case .interrupted(let signal):
+                session.status.send(.stopped)
+                throw ExitCode(128 + signal)
         }
     }
 
@@ -135,6 +143,7 @@ struct StatusCommand: AsyncParsableCommand {
             concurrency: concurrency,
             interval: interval,
             color: color,
+            programStatus: programStatus,
             apiURL: apiURL
         )
     }

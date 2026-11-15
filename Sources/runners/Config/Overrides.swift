@@ -12,6 +12,7 @@ struct Overrides: Sendable {
     var concurrency: Int?
     var interval: Int?
     var color: Bool?
+    var programStatus: Bool?
     var apiURL: String?
 
     /// The owner or repositories given, if any.

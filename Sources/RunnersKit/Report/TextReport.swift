@@ -20,17 +20,9 @@ public struct TextReport: Sendable {
 
     /// `octo on GitHub · 2 active runs in 1 of 12 repositories · 10:42:13`
     func header(_ snapshot: StatusSnapshot) -> String {
-        let term = snapshot.provider.repositoryTerm
-        let repositories = plural(snapshot.repositoryCount, term.singular, term.plural)
-        let counts =
-            snapshot.runs.isEmpty
-            ? "no active runs in \(repositories)"
-            : "\(plural(snapshot.runs.count, "active run")) in \(snapshot.byRepository.count) of \(repositories)"
         let time = snapshot.fetchedAt.formatted(date: .omitted, time: .standard)
-        let scope =
-            snapshot.owner.map { "\($0.login) on \(snapshot.provider.name)" }
-            ?? snapshot.provider.name
-        return style.paint(scope, .bold) + style.paint(" · \(counts) · \(time)", .dim)
+        return style.paint(snapshot.scope, .bold)
+            + style.paint(" · \(snapshot.summary) · \(time)", .dim)
     }
 
     func body(_ snapshot: StatusSnapshot) -> [String] {
@@ -47,9 +39,5 @@ public struct TextReport: Sendable {
 
     func repositoryLines(_ group: RepositoryRuns) -> [String] {
         ["", style.paint(group.repository.fullName, .bold)] + group.runs.flatMap(runLines)
-    }
-
-    func plural(_ count: Int, _ singular: String, _ plural: String? = nil) -> String {
-        "\(count) " + (count == 1 ? singular : plural ?? singular + "s")
     }
 }

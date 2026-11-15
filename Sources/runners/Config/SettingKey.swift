@@ -57,6 +57,7 @@ extension SettingKey {
     static let concurrency: SettingKey = "runners.concurrency"
     static let interval: SettingKey = "runners.interval"
     static let color: SettingKey = "runners.color"
+    static let programStatus: SettingKey = "runners.program_status"
     static let noColor: SettingKey = "no_color"
 
     static let ghToken: SettingKey = "gh.token"
@@ -71,7 +72,7 @@ extension SettingKey {
     /// What a `.runners` file may set. The other keys are environment conventions of other tools.
     static let fileKeys: [SettingKey] = [
         .provider, .owner, .repositories, .status, .jobs, .allJobs, .forks, .concurrency, .interval,
-        .color,
+        .color, .programStatus,
         .gitHubToken, .gitHubAPIURL, .gitLabToken, .gitLabHost,
     ]
 }

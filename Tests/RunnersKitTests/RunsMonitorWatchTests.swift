@@ -73,7 +73,7 @@ struct RunsMonitorWatchTests {
         let service = CountingService()
         var snapshots = RunsMonitor(service: service).watch(query, every: .milliseconds(1))
             .makeAsyncIterator()
-        _ = await snapshots.next()
+        _ = await snapshots.next(isolation: #isolation)
         try await Task.sleep(for: .milliseconds(50))
         #expect(service.count == 1)
     }

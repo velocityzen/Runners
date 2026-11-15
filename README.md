@@ -48,6 +48,16 @@ Options: `-s/--status` to pick which run statuses to show (default `running`, `q
 
 Statuses mean the same on both services: **queued** waits for a runner; **pending** waits on something else first (a concurrency group, earlier stages, a resource); **waiting** waits for a person or a timer (an approval, a manual job, a delay).
 
+### Terminal status
+
+`runners` reports what it is doing to the terminal with the [Program Status Protocol](https://www.superlogical.com/rex/docs/build/program-status) (OSC 7501), through [ProgramStatus](https://github.com/velocityzen/ProgramStatus). A terminal that knows the protocol shows it; others ignore it. Reports go to the controlling terminal, so `--json` and pipes stay clean.
+
+- A check is **working** while it runs, then **done** with a summary, or **error**.
+- With `--watch`, the root record is **idle** with no active runs, **working** with some, **blocked** while one waits for approval, and **error** when a refresh fails. Each repository with active runs gets a record titled with its name, and each run one beneath it, with its jobs' progress; finished ones are cleared.
+- Ctrl-C clears those records, leaves the root **idle**, and exits with 130.
+
+`--no-program-status`, or `program_status=false`, turns it off.
+
 ### Tokens
 
 - **GitHub:** the first of `GH_TOKEN`, `GITHUB_TOKEN`, or the token of a signed-in [GitHub CLI](https://cli.github.com) (`gh auth token`). Private repositories need the classic `repo` scope, or a fine-grained token with Actions (read). For GitHub Enterprise, pass `--api-url https://ghe.example.com/api/v3` or set `GITHUB_API_URL`.
@@ -88,6 +98,7 @@ gitlab.host=gitlab.example.com
 | `concurrency` | `RUNNERS_CONCURRENCY` | `16`; 1–32 |
 | `interval` | `RUNNERS_INTERVAL` | `15` seconds; at least 5 |
 | `color` | `RUNNERS_COLOR` | on a terminal, unless `NO_COLOR` is set |
+| `program_status` | `RUNNERS_PROGRAM_STATUS` | `true` |
 | `github.token` | `GH_TOKEN`, `GITHUB_TOKEN` | `gh auth token` |
 | `github.api_url` | `GITHUB_API_URL` | `https://api.github.com` |
 | `gitlab.token` | `GITLAB_TOKEN`, `GITLAB_ACCESS_TOKEN` | |
@@ -138,7 +149,7 @@ case .failure(let error):
 }
 ```
 
-To keep watching, read `watch`'s `AsyncStream`. It takes a snapshot when you ask for the next one, `interval` after the previous read; a failure is an element, not the end, and cancelling your task finishes it:
+To keep watching, read `watch`, an async sequence built on fp-swift's `withRepeat`. It takes a snapshot when you ask for the next one, at most once per `interval`; a failure is an element, not the end, and cancelling your task finishes it:
 
 ```swift
 for await snapshot in monitor.watch(query, every: .seconds(15)) {

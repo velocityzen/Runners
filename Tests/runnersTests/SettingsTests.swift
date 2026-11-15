@@ -13,9 +13,9 @@ struct SettingsTests {
         #expect(settings.apiURL == GitHubService.defaultBaseURL)
         #expect(settings.token == nil)
         #expect(settings.query == StatusQuery(target: .authenticatedUser))
-        #expect(!settings.showsPassedJobs)
-        #expect(settings.interval == 15)
-        #expect(settings.colored)
+        #expect(!settings.display.showsPassedJobs)
+        #expect(settings.display.interval == 15)
+        #expect(settings.display.colored)
     }
 
     @Test("reads every setting from the config")
@@ -50,9 +50,9 @@ struct SettingsTests {
                     concurrency: 4
                 )
         )
-        #expect(settings.showsPassedJobs)
-        #expect(settings.interval == 60)
-        #expect(!settings.colored)
+        #expect(settings.display.showsPassedJobs)
+        #expect(settings.display.interval == 60)
+        #expect(!settings.display.colored)
     }
 
     @Test("lets the command line win over the config")
@@ -80,7 +80,7 @@ struct SettingsTests {
                     concurrency: 8
                 )
         )
-        #expect(settings.interval == 5)
+        #expect(settings.display.interval == 5)
     }
 
     @Test("takes owner and repos together from the first source that sets either")
@@ -156,13 +156,24 @@ struct SettingsTests {
     @Test("colors a terminal unless NO_COLOR is set; the config and command line override both")
     func color() async throws {
         let fixture = try ConfigFixture()
-        #expect(try await !fixture.settings(isTerminal: false).get().colored)
+        #expect(try await !fixture.settings(isTerminal: false).get().display.colored)
         fixture.environment = ["NO_COLOR": "1"]
-        #expect(try await !fixture.settings().get().colored)
+        #expect(try await !fixture.settings().get().display.colored)
         try fixture.local("color=true")
-        #expect(try await fixture.settings().get().colored)
+        #expect(try await fixture.settings().get().display.colored)
         var given = Overrides()
         given.color = false
-        #expect(try await !fixture.settings(given).get().colored)
+        #expect(try await !fixture.settings(given).get().display.colored)
+    }
+
+    @Test("reports program status unless the config or the command line turns it off")
+    func programStatus() async throws {
+        let fixture = try ConfigFixture()
+        #expect(try await fixture.settings().get().display.reportsProgramStatus)
+        try fixture.local("program_status=false")
+        #expect(try await !fixture.settings().get().display.reportsProgramStatus)
+        var given = Overrides()
+        given.programStatus = true
+        #expect(try await fixture.settings(given).get().display.reportsProgramStatus)
     }
 }

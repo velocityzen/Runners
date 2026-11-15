@@ -9,9 +9,17 @@ struct Settings: Sendable {
     /// The configured token; nil leaves it to the provider's fallback, such as `gh`.
     let token: String?
     let query: StatusQuery
-    let showsPassedJobs: Bool
-    let interval: Int
-    let colored: Bool
+    let display: Display
+
+    /// How results are shown and reported.
+    struct Display: Sendable, Equatable {
+        let showsPassedJobs: Bool
+        /// Seconds between snapshots with `--watch`.
+        let interval: Int
+        let colored: Bool
+        /// Whether to report to the terminal with the Program Status Protocol.
+        let reportsProgramStatus: Bool
+    }
 
     static func load(
         _ given: Overrides,
@@ -31,22 +39,37 @@ struct Settings: Sendable {
             .bind { provider(given, config) }
             .bind { provider in provider.apiURL(given.apiURL, in: config) }
             .bind { _, _ in query(given, config) }
-            .bind { _, _, _ in config.flag(given.allJobs, .allJobs, default: false) }
-            .bind { _, _, _, _ in
-                config.number(given.interval, .interval, default: 15, in: 5...86_400)
-            }
-            .bind { _, _, _, _, _ in colored(given, config, isTerminal: isTerminal) }
-            .map { provider, apiURL, query, allJobs, interval, colored in
+            .bind { _, _, _ in display(given, config, isTerminal: isTerminal) }
+            .map { provider, apiURL, query, display in
                 Settings(
                     provider: provider,
                     apiURL: apiURL,
                     token: provider.token(in: config),
                     query: query,
-                    showsPassedJobs: allJobs,
-                    interval: interval,
-                    colored: colored
+                    display: display
                 )
             }
+    }
+
+    static func display(
+        _ given: Overrides,
+        _ config: Config,
+        isTerminal: Bool
+    ) -> Result<Display, RunnersError> {
+        flatten(
+            config.flag(given.allJobs, .allJobs, default: false),
+            config.number(given.interval, .interval, default: 15, in: 5...86_400),
+            colored(given, config, isTerminal: isTerminal),
+            config.flag(given.programStatus, .programStatus, default: true)
+        )
+        .map { allJobs, interval, colored, programStatus in
+            Display(
+                showsPassedJobs: allJobs,
+                interval: interval,
+                colored: colored,
+                reportsProgramStatus: programStatus
+            )
+        }
     }
 
     /// The service to ask, with the configured token or else the provider's fallback.
