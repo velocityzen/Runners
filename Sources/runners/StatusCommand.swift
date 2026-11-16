@@ -128,6 +128,7 @@ struct StatusCommand: AsyncParsableCommand {
             providers: Providers.builtIn
         )
         .get()
+
         let cache = ResponseCache.load(enabled: settings.cachesResponses)
         let session = StatusSession(
             monitor: RunsMonitor(service: try await settings.service(cache: cache.cache).get()),
