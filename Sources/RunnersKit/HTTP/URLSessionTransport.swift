@@ -9,9 +9,14 @@ import Foundation
 public struct URLSessionTransport: HTTPTransport {
     let session: URLSession
 
-    public init(session: URLSession = URLSessionTransport.uncachedSession()) {
+    public init(session: URLSession = URLSessionTransport.shared) {
         self.session = session
     }
+
+    /// The uncached session every transport shares, kept for the life of the process: on Linux,
+    /// FoundationNetworking aborts when a session that sent requests is deallocated
+    /// (`_MultiHandle deallocated with non-zero retain count`).
+    public static let shared = uncachedSession()
 
     public static func uncachedSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral

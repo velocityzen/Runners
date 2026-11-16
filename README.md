@@ -38,7 +38,7 @@ tar -xzf runners-macos-arm64.tar.gz && mv runners /usr/local/bin/
 
 The binary is not notarized. `curl` doesn't mark it as downloaded, so it runs as is; one downloaded with a browser needs `xattr -d com.apple.quarantine runners` first. `runners --version` says which release it is.
 
-Or build it, with Swift 6.4 (a build of your own says `dev`):
+Or build it with Swift 6.4, on macOS 27 or Linux (a build of your own says `dev`):
 
 ```bash
 swift build -c release
@@ -218,7 +218,7 @@ The design notes in `docs/` cover the runner APIs of other CI providers.
 
 ### CI and releases
 
-`.github/workflows/ci.yml` runs on pushes to `main` and on pull requests: swift-format in strict lint mode, then the build and tests on macOS 27 (GitHub's `xcode-27` image). [zizmor](https://zizmor.sh) audits the workflows first whenever `.github` changes.
+`.github/workflows/ci.yml` runs on pushes to `main` and on pull requests: swift-format in strict lint mode, then the build and tests on macOS 27 (GitHub's `xcode-27` image) and on Linux, x86_64 and arm64, in the `swift:6.4` container. [zizmor](https://zizmor.sh) audits the workflows first whenever `.github` changes.
 
 To release, write the notes in `release.md` at the root of the repository, commit it, then tag that commit with the version and push the tag:
 

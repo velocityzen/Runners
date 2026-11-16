@@ -75,3 +75,36 @@ jobs:
       # the binary a release would ship starts at all.
       - name: Run runners --help
         run: swift run runners --help
+
+  # Nothing in runners is meant to be macOS-only; this keeps it so.
+  linux:
+    name: Test Linux ${{ matrix.arch }}
+    needs: zizmor
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    container:
+      image: swift:6.4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve dependencies
+        run: swift package resolve
+
+      - name: Build
+        run: swift build -v
+
+      - name: Test
+        run: swift test
+
+      - name: Run runners --help
+        run: swift run runners --help
