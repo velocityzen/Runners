@@ -36,9 +36,9 @@ curl -fsSL https://github.com/velocityzen/Runners/releases/latest/download/runne
 tar -xzf runners-macos-arm64.tar.gz && mv runners /usr/local/bin/
 ```
 
-The binary is not notarized. `curl` doesn't mark it as downloaded, so it runs as is; one downloaded with a browser needs `xattr -d com.apple.quarantine runners` first.
+The binary is not notarized. `curl` doesn't mark it as downloaded, so it runs as is; one downloaded with a browser needs `xattr -d com.apple.quarantine runners` first. `runners --version` says which release it is.
 
-Or build it, with Swift 6.4:
+Or build it, with Swift 6.4 (a build of your own says `dev`):
 
 ```bash
 swift build -c release
@@ -230,6 +230,6 @@ git tag 0.1.0
 git push origin 0.1.0
 ```
 
-`.github/workflows/release.yml` then tests the tagged commit, builds `runners` for Apple silicon, and publishes a GitHub release titled with the tag, with `release.md` as its notes and `runners-macos-arm64.tar.gz` and its `.sha256` attached. A tag with a suffix, such as `1.2.0-beta.1`, makes a pre-release.
+`.github/workflows/release.yml` then tests the tagged commit, builds `runners` for Apple silicon with the tag as its `--version` (without a leading `v`), and publishes a GitHub release titled with the tag, with `release.md` as its notes and `runners-macos-arm64.tar.gz` and its `.sha256` attached. A tag with a suffix, such as `1.2.0-beta.1`, makes a pre-release.
 
 Once the release is out, the workflow removes `release.md` from `main` in a commit of its own, so pull before writing the next notes. It leaves the file alone if `main` already has different notes in it. A tag whose commit has no `release.md`, or only blank lines in it, releases nothing.

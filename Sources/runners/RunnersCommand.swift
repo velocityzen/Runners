@@ -7,6 +7,7 @@ struct RunnersCommand: AsyncParsableCommand {
         commandName: "runners",
         abstract:
             "Watch CI runs across every repository of a user, organization or group on \(Providers.builtIn.map(\.name).formatted(.list(type: .and))).",
+        version: Version.current,
         subcommands: [StatusCommand.self],
         defaultSubcommand: StatusCommand.self
     )
