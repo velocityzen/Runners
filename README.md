@@ -22,7 +22,9 @@ API quota 3,597/5,000 · resets 10:46
 
 ## Install
 
-Each [release](https://github.com/velocityzen/Runners/releases) has a build for Apple silicon. It needs macOS 27.
+Each [release](https://github.com/velocityzen/Runners/releases) has a build for Apple silicon, which needs macOS 27, and static builds for Linux on x86_64 and aarch64. `runners --version` says which release it is.
+
+### macOS
 
 ```bash
 curl -fsSLO https://github.com/velocityzen/Runners/releases/latest/download/runners-macos-arm64.tar.gz
@@ -36,9 +38,27 @@ curl -fsSL https://github.com/velocityzen/Runners/releases/latest/download/runne
 tar -xzf runners-macos-arm64.tar.gz && mv runners /usr/local/bin/
 ```
 
-The binary is not notarized. `curl` doesn't mark it as downloaded, so it runs as is; one downloaded with a browser needs `xattr -d com.apple.quarantine runners` first. `runners --version` says which release it is.
+The binary is not notarized. `curl` doesn't mark it as downloaded, so it runs as is; one downloaded with a browser needs `xattr -d com.apple.quarantine runners` first.
 
-Or build it with Swift 6.4, on macOS 27 or Linux (a build of your own says `dev`):
+### Linux
+
+The binary is static: it runs on any distribution, and needs only CA certificates (the `ca-certificates` package, which most systems have) to reach the API. Without the GitHub CLI, set `GITHUB_TOKEN` (see [Tokens](#tokens)).
+
+```bash
+curl -fsSLO https://github.com/velocityzen/Runners/releases/latest/download/runners-linux-$(uname -m).tar.gz
+```
+
+```bash
+curl -fsSL https://github.com/velocityzen/Runners/releases/latest/download/runners-linux-$(uname -m).tar.gz.sha256 | sha256sum -c -
+```
+
+```bash
+tar -xzf runners-linux-$(uname -m).tar.gz && sudo mv runners /usr/local/bin/
+```
+
+### From source
+
+Build it with Swift 6.4, on macOS 27 or Linux (a build of your own says `dev`):
 
 ```bash
 swift build -c release
@@ -230,7 +250,7 @@ git tag 0.1.0
 git push origin 0.1.0
 ```
 
-`.github/workflows/release.yml` then tests the tagged commit, builds `runners` for Apple silicon with the tag as its `--version` (without a leading `v`), and publishes a GitHub release titled with the tag, with `release.md` as its notes and `runners-macos-arm64.tar.gz` and its `.sha256` attached. A tag with a suffix, such as `1.2.0-beta.1`, makes a pre-release.
+`.github/workflows/release.yml` then tests the tagged commit, builds `runners` for Apple silicon and, with swift.org's Static Linux SDK, for Linux on x86_64 and aarch64, each with the tag as its `--version` (without a leading `v`), and publishes a GitHub release titled with the tag, with `release.md` as its notes and `runners-macos-arm64.tar.gz`, `runners-linux-x86_64.tar.gz` and `runners-linux-aarch64.tar.gz`, each with its `.sha256`, attached. The Linux job runs in the `swift:6.4.2` image because the SDK must match the compiler exactly; moving to another Swift release means changing the image, `SDK_URL` and `SDK_SHA256` together. A tag with a suffix, such as `1.2.0-beta.1`, makes a pre-release.
 
 The release is signed with a Developer ID certificate and notarized by Apple when the repository has these five secrets; with none of them it ships unsigned, and with only some the release fails:
 
