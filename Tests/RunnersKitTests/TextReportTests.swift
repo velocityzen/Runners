@@ -48,6 +48,26 @@ struct TextReportTests {
         #expect(lines.contains("    https://example.com/runs/7"))
     }
 
+    @Test("after a failed refresh, shows the last snapshot as it was taken, then the failure")
+    func failedRefresh() {
+        let later = Fixtures.now.addingTimeInterval(600)
+        let lines = TextReport(now: later)
+            .render(snapshot, refreshFailed: .transport("offline"), lastAttempt: later)
+            .components(separatedBy: "\n")
+        #expect(lines.contains("    running 5m 00s · main · push · @octo · 2/4 jobs done"))
+        #expect(lines.suffix(3).first == "")
+        #expect(lines.suffix(2).first == "⚠ Network error: offline")
+        #expect(lines.last?.hasPrefix("Showing the runs as of ") == true)
+        #expect(lines.last?.contains(" · retrying, last attempt ") == true)
+    }
+
+    @Test("paints a failed refresh yellow")
+    func failedRefreshColor() {
+        let lines = TextReport(style: .colored, now: Fixtures.now)
+            .failedRefresh(.transport("offline"), shownAt: Fixtures.now, lastAttempt: Fixtures.now)
+        #expect(lines.first == "\u{1B}[33m⚠ Network error: offline\u{1B}[0m")
+    }
+
     @Test("shows how a finished run ended, how long it took and how long ago")
     func finished() {
         let report = TextReport(now: Fixtures.now)

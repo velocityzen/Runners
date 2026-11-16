@@ -18,6 +18,38 @@ public struct TextReport: Sendable {
             .joined(separator: "\n")
     }
 
+    /// The last snapshot once a refresh has failed: as it was when it was taken, so its times
+    /// stop instead of running on, with what went wrong beneath it.
+    public func render(
+        _ snapshot: StatusSnapshot,
+        refreshFailed error: RunnersError,
+        lastAttempt: Date
+    ) -> String {
+        let asTaken = TextReport(
+            style: style,
+            now: snapshot.fetchedAt,
+            showsPassedJobs: showsPassedJobs
+        )
+        return
+            ([asTaken.render(snapshot), ""]
+            + failedRefresh(error, shownAt: snapshot.fetchedAt, lastAttempt: lastAttempt))
+            .joined(separator: "\n")
+    }
+
+    /// `⚠ Network error: …`, then
+    /// `Showing the runs as of 10:42:13 · retrying, last attempt 10:43:01`
+    func failedRefresh(_ error: RunnersError, shownAt: Date, lastAttempt: Date) -> [String] {
+        let shown = shownAt.formatted(date: .omitted, time: .standard)
+        let attempt = lastAttempt.formatted(date: .omitted, time: .standard)
+        return [
+            style.paint("⚠ \(error.localizedDescription)", .yellow),
+            style.paint(
+                "Showing the runs as of \(shown) · retrying, last attempt \(attempt)",
+                .dim
+            ),
+        ]
+    }
+
     /// `octo on GitHub · 2 active runs in 1 of 12 repositories · 10:42:13`
     func header(_ snapshot: StatusSnapshot) -> String {
         let time = snapshot.fetchedAt.formatted(date: .omitted, time: .standard)
