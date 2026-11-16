@@ -2,9 +2,10 @@ name: Release
 
 # Pushing a version tag (1.2.3 or v1.2.3) releases that commit, when it has a
 # release.md with something in it: the notes for the release. The commit is
-# tested, `runners` is built for Apple silicon, and a GitHub release with the
-# archive, its checksum and those notes is published. Then release.md is
-# removed from the default branch, so the next release needs new notes.
+# tested, `runners` is built for Apple silicon, signed and notarized when the
+# repository has the signing secrets, and a GitHub release with the archive,
+# its checksum and those notes is published. Then release.md is removed from
+# the default branch, so the next release needs new notes.
 #
 # A tag without notes releases nothing: the other jobs are skipped. The
 # archive's name has no version, so
@@ -16,8 +17,8 @@ on:
       - "[0-9]+.[0-9]+.[0-9]+*"
       - "v[0-9]+.[0-9]+.[0-9]+*"
 
-# Only the publish job gets a write token, and it runs none of the
-# repository's code.
+# Only the publish job gets a write token, and only the package job gets the
+# signing secrets; neither runs any of the repository's code.
 permissions:
   contents: read
 
@@ -69,7 +70,6 @@ jobs:
     runs-on: xcode-27
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
-      ARCHIVE: runners-macos-arm64.tar.gz
       TAG: ${{ github.ref_name }}
     steps:
       - name: Checkout
@@ -99,16 +99,133 @@ jobs:
       - name: Build
         run: swift build -c release --arch arm64 --product runners
 
-      # The binary alone, stripped, in a tar.gz with a SHA-256 beside it.
+      # Stripped, it must still start and say which release it is.
+      - name: Strip
+        run: |
+          mkdir -p dist
+          cp "$(swift build -c release --arch arm64 --show-bin-path)/runners" dist/runners
+          strip dist/runners
+          dist/runners --help > /dev/null
+          test "$(dist/runners --version)" = "${TAG#v}"
+
+      - name: Keep the binary for packaging
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: binary
+          path: dist/runners
+          if-no-files-found: error
+          retention-days: 1
+
+  # Signs the binary with the Developer ID certificate and has Apple notarize
+  # it, when the repository has the five signing secrets; with none of them it
+  # ships unsigned. It checks out nothing, so no code of the repository runs
+  # where the secrets are. Then the binary goes in a tar.gz with a SHA-256
+  # beside it.
+  package:
+    name: Sign and package
+    needs: build
+    runs-on: macos-26
+    env:
+      ARCHIVE: runners-macos-arm64.tar.gz
+    steps:
+      - name: Fetch the binary
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: binary
+          path: bin
+
+      # Artifacts don't keep the executable bit.
+      - name: Make it executable
+        run: chmod +x bin/runners
+
+      # Whether each secret is set, never its value.
+      - name: Check the signing secrets
+        id: secrets
+        env:
+          HAS_MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE != '' }}
+          HAS_MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD != '' }}
+          HAS_NOTARY_KEY: ${{ secrets.NOTARY_KEY != '' }}
+          HAS_NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID != '' }}
+          HAS_NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID != '' }}
+        run: |
+          MISSING=()
+          for NAME in MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD NOTARY_KEY NOTARY_KEY_ID NOTARY_ISSUER_ID; do
+            HAS="HAS_$NAME"
+            if [ "${!HAS}" != "true" ]; then MISSING+=("$NAME"); fi
+          done
+          if [ "${#MISSING[@]}" -eq 0 ]; then
+            echo "sign=true" >> "$GITHUB_OUTPUT"
+          elif [ "${#MISSING[@]}" -eq 5 ]; then
+            echo "::warning title=Not signed::The repository has no signing secrets, so runners ships unsigned and not notarized."
+            echo "sign=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error title=Signing secrets missing::Set ${MISSING[*]} too, or none of the signing secrets."
+            exit 1
+          fi
+
+      # A keychain of its own, which the last step deletes.
+      - name: Sign
+        if: steps.secrets.outputs.sign == 'true'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          printf '%s' "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          read -r -d '' -a SEARCH < <(security list-keychains -d user | tr -d '"') || true
+          security list-keychains -d user -s "$KEYCHAIN" "${SEARCH[@]}"
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | awk '/"Developer ID Application: / { print $2; exit }')
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::MACOS_CERTIFICATE has no Developer ID Application certificate with its private key."
+            exit 1
+          fi
+          codesign --force --sign "$IDENTITY" --keychain "$KEYCHAIN" --options runtime --timestamp bin/runners
+          codesign --verify --strict --verbose=2 bin/runners
+          codesign --display --verbose=2 bin/runners 2>&1 | grep -E '^(Authority|TeamIdentifier|Timestamp|Runtime Version)='
+
+      # notarytool takes a zip, not a bare binary; and a bare binary can't be
+      # stapled, so Gatekeeper looks the ticket up online.
+      - name: Notarize
+        if: steps.secrets.outputs.sign == 'true'
+        env:
+          NOTARY_KEY: ${{ secrets.NOTARY_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          KEY="$RUNNER_TEMP/notary.p8"
+          printf '%s\n' "$NOTARY_KEY" > "$KEY"
+          AUTH=(--key "$KEY" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
+          ditto -c -k --norsrc --noextattr bin/runners "$RUNNER_TEMP/runners.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/runners.zip" "${AUTH[@]}" \
+            --wait --timeout 30m --output-format json > "$RUNNER_TEMP/notary.json" || true
+          cat "$RUNNER_TEMP/notary.json"
+          ID=$(jq -r '.id // empty' "$RUNNER_TEMP/notary.json" 2> /dev/null || true)
+          STATUS=$(jq -r '.status // empty' "$RUNNER_TEMP/notary.json" 2> /dev/null || true)
+          if [ "$STATUS" != "Accepted" ]; then
+            if [ -n "$ID" ]; then xcrun notarytool log "$ID" "${AUTH[@]}" || true; fi
+            echo "::error title=Not notarized::Notarization ended with \"${STATUS:-no status}\"."
+            exit 1
+          fi
+          spctl --assess --type install --verbose=2 bin/runners \
+            || echo "::warning::Notarized, but spctl does not accept runners yet."
+
+      - name: Remove the signing keychain and key
+        if: always() && steps.secrets.outputs.sign == 'true'
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/certificate.p12" "$RUNNER_TEMP/notary.p8"
+
       - name: Package
         run: |
-          BIN="$(swift build -c release --arch arm64 --show-bin-path)/runners"
-          mkdir -p dist/runners
-          cp "$BIN" dist/runners/runners
-          strip dist/runners/runners
-          dist/runners/runners --help > /dev/null
-          test "$(dist/runners/runners --version)" = "${TAG#v}"
-          tar -czf "dist/$ARCHIVE" -C dist/runners runners
+          mkdir -p dist
+          tar --no-mac-metadata -czf "dist/$ARCHIVE" -C bin runners
           (cd dist && shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256")
           cat "dist/$ARCHIVE.sha256"
 
@@ -124,7 +241,7 @@ jobs:
 
   publish:
     name: Publish the release
-    needs: build
+    needs: package
     runs-on: ubuntu-latest
     permissions:
       contents: write

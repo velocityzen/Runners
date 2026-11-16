@@ -232,4 +232,16 @@ git push origin 0.1.0
 
 `.github/workflows/release.yml` then tests the tagged commit, builds `runners` for Apple silicon with the tag as its `--version` (without a leading `v`), and publishes a GitHub release titled with the tag, with `release.md` as its notes and `runners-macos-arm64.tar.gz` and its `.sha256` attached. A tag with a suffix, such as `1.2.0-beta.1`, makes a pre-release.
 
+The release is signed with a Developer ID certificate and notarized by Apple when the repository has these five secrets; with none of them it ships unsigned, and with only some the release fails:
+
+| Secret | What it holds |
+| --- | --- |
+| `MACOS_CERTIFICATE` | The Developer ID Application certificate with its private key, exported from Keychain Access as a `.p12`, in base64: `base64 -i certificate.p12 \| pbcopy` |
+| `MACOS_CERTIFICATE_PASSWORD` | The password the `.p12` was exported with |
+| `NOTARY_KEY` | An App Store Connect API key (Users and Access → Integrations, Developer access): the whole text of its `AuthKey_….p8` |
+| `NOTARY_KEY_ID` | That key's ID |
+| `NOTARY_ISSUER_ID` | The issuer ID shown above the keys |
+
+Only the job that signs gets them, and it runs none of the repository's code. A bare binary can't be stapled, so Gatekeeper looks up its notarization online the first time it runs.
+
 Once the release is out, the workflow removes `release.md` from `main` in a commit of its own, so pull before writing the next notes. It leaves the file alone if `main` already has different notes in it. A tag whose commit has no `release.md`, or only blank lines in it, releases nothing.
