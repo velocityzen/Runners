@@ -44,6 +44,59 @@ struct StatusRecordsTests {
         #expect(records.ids == ["101", "101/7"])
     }
 
+    @Test("sends nothing when nothing changed")
+    func unchanged() {
+        var records = StatusRecords()
+        let snapshot = Snapshots.snapshot([Snapshots.active(app, 7), Snapshots.active(web, 8)])
+        _ = records.update(.success(snapshot))
+        #expect(records.update(.success(snapshot)).isEmpty)
+        #expect(records.ids == ["101", "101/7", "102", "102/8"])
+    }
+
+    @Test("sends only the records that changed")
+    func changed() {
+        var records = StatusRecords()
+        _ = records.update(
+            .success(Snapshots.snapshot([Snapshots.active(app, 7), Snapshots.active(web, 8)]))
+        )
+        let reports = records.update(
+            .success(
+                Snapshots.snapshot([Snapshots.active(app, 7), Snapshots.active(web, 8, .waiting)])
+            )
+        )
+        #expect(reports.map(\.id) == [nil, "102", "102/8"])
+    }
+
+    @Test("sends a repeated failure once, and the root again when a refresh works")
+    func repeatedFailure() {
+        var records = StatusRecords()
+        let snapshot = Snapshots.snapshot([Snapshots.active(app, 7)])
+        _ = records.update(.success(snapshot))
+        let offline = RunnersError.transport("offline")
+        #expect(records.update(.failure(offline)).map(\.id) == [nil])
+        #expect(records.update(.failure(offline)).isEmpty)
+        #expect(records.update(.failure(.server(status: 502, message: ""))).map(\.id) == [nil])
+        #expect(records.update(.success(snapshot)) == [.watching(snapshot)])
+    }
+
+    @Test("sends a run again when it comes back after it was cleared")
+    func returning() {
+        var records = StatusRecords()
+        let both = Snapshots.snapshot([Snapshots.active(app, 7), Snapshots.active(app, 9)])
+        _ = records.update(.success(both))
+        _ = records.update(.success(Snapshots.snapshot([Snapshots.active(app, 9)])))
+        #expect(records.update(.success(both)).map(\.id) == [nil, "101", "101/7"])
+    }
+
+    @Test("sends everything again after it clears")
+    func afterClear() {
+        var records = StatusRecords()
+        let snapshot = Snapshots.snapshot([Snapshots.active(app, 7)])
+        _ = records.update(.success(snapshot))
+        _ = records.clear()
+        #expect(records.update(.success(snapshot)).map(\.id) == [nil, "101", "101/7"])
+    }
+
     @Test("clears every record it made, repositories only")
     func clear() {
         var records = StatusRecords()
