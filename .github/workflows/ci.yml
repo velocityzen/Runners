@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# The jobs only read the repository; none of them needs a write token.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Swift is swift.org's, installed by .github/actions/setup-swift.
+jobs:
+  # When a change touches .github, zizmor audits the workflows and actions
+  # first; every other job waits for it.
+  zizmor:
+    name: zizmor
+    uses: $/.github/workflows/zizmor.yml
+
+  lint:
+    name: Lint
+    needs: zizmor
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # swift-format comes with the toolchain, so it is pinned with it.
+      - name: Set up Swift
+        uses: $/.github/actions/setup-swift
+        with:
+          swift-version: "6.4"
+
+      - name: swift-format (lint mode, strict)
+        run: swift format lint --recursive --strict --configuration .swift-format Package.swift Sources Tests
+
+  macos:
+    name: Test macOS
+    needs: zizmor
+    # Package.swift needs macOS 27, which only the xcode-27 image (a public
+    # preview) runs; macos-26 can't launch what it builds.
+    runs-on: xcode-27
+    env:
+      # The SDK swift.org's toolchain builds against, so a change of the
+      # image's default Xcode cannot change it.
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Swift
+        uses: $/.github/actions/setup-swift
+        with:
+          swift-version: "6.4"
+
+      - name: Resolve dependencies
+        run: swift package resolve
+
+      - name: Build
+        run: swift build -v
+
+      - name: Test
+        run: swift test
+
+      # The command line parses and its help renders: the cheapest check that
+      # the binary a release would ship starts at all.
+      - name: Run runners --help
+        run: swift run runners --help

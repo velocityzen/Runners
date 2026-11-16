@@ -1,0 +1,177 @@
+name: Release
+
+# Pushing a version tag (1.2.3 or v1.2.3) releases that commit, when it has a
+# release.md with something in it: the notes for the release. The commit is
+# tested, `runners` is built for Apple silicon, and a GitHub release with the
+# archive, its checksum and those notes is published. Then release.md is
+# removed from the default branch, so the next release needs new notes.
+#
+# A tag without notes releases nothing: the other jobs are skipped. The
+# archive's name has no version, so
+# releases/latest/download/runners-macos-arm64.tar.gz always works. A tag with
+# a suffix (1.2.3-beta.1) makes a pre-release.
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+*"
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+
+# Only the publish job gets a write token, and it runs none of the
+# repository's code.
+permissions:
+  contents: read
+
+# A release finishes once started; a second push of the same tag waits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  notes:
+    name: Find the release notes
+    runs-on: ubuntu-latest
+    outputs:
+      found: ${{ steps.notes.outputs.found }}
+    steps:
+      - name: Checkout release.md
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: release.md
+          sparse-checkout-cone-mode: false
+
+      # Blank lines alone are no notes.
+      - name: Check release.md
+        id: notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [ -f release.md ] && grep -q '[^[:space:]]' release.md; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Nothing released::$TAG has no release.md with notes in it, so it is not released."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # When a change touches .github, zizmor audits the workflows and actions
+  # first; the build and publish jobs wait for it.
+  zizmor:
+    name: zizmor
+    needs: notes
+    if: needs.notes.outputs.found == 'true'
+    uses: $/.github/workflows/zizmor.yml
+
+  build:
+    name: Test and build
+    needs: zizmor
+    # Package.swift needs macOS 27, which only the xcode-27 image (a public
+    # preview) runs.
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+      ARCHIVE: runners-macos-arm64.tar.gz
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Swift
+        uses: $/.github/actions/setup-swift
+        with:
+          swift-version: "6.4"
+
+      - name: Test
+        run: swift test
+
+      - name: Build
+        run: swift build -c release --arch arm64 --product runners
+
+      # The binary alone, stripped, in a tar.gz with a SHA-256 beside it.
+      - name: Package
+        run: |
+          BIN="$(swift build -c release --arch arm64 --show-bin-path)/runners"
+          mkdir -p dist/runners
+          cp "$BIN" dist/runners/runners
+          strip dist/runners/runners
+          dist/runners/runners --help > /dev/null
+          tar -czf "dist/$ARCHIVE" -C dist/runners runners
+          (cd dist && shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256")
+          cat "dist/$ARCHIVE.sha256"
+
+      - name: Keep the archive for publishing
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: |
+            dist/${{ env.ARCHIVE }}
+            dist/${{ env.ARCHIVE }}.sha256
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      # The tagged commit's release.md, read and never run.
+      - name: Checkout release.md
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: release.md
+          sparse-checkout-cone-mode: false
+
+      - name: Fetch the archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: dist
+
+      # Skipped when a re-run finds the release already published, so a run
+      # that failed after it can finish the cleanup.
+      - name: Create the release
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "::notice::$TAG is already released."
+            exit 0
+          fi
+          PRERELEASE=()
+          if [[ "$TAG" == *-* ]]; then PRERELEASE=(--prerelease); fi
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --notes-file release.md \
+            --verify-tag \
+            "${PRERELEASE[@]}"
+
+      # One commit on the default branch, made through the API: it deletes
+      # release.md only while it is the file this tag released, so notes
+      # already written for the next release stay.
+      - name: Remove release.md from the default branch
+        env:
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          RELEASED=$(git rev-parse HEAD:release.md)
+          if ! CURRENT=$(gh api "repos/$GITHUB_REPOSITORY/contents/release.md?ref=$BRANCH" --jq .sha 2> "$RUNNER_TEMP/error"); then
+            if grep -q "HTTP 404" "$RUNNER_TEMP/error"; then
+              echo "::notice::$BRANCH has no release.md to remove."
+              exit 0
+            fi
+            cat "$RUNNER_TEMP/error" >&2
+            exit 1
+          fi
+          if [ "$CURRENT" != "$RELEASED" ]; then
+            echo "::warning title=release.md kept::release.md on $BRANCH is not the one $TAG released, so it stays."
+            exit 0
+          fi
+          gh api --method DELETE "repos/$GITHUB_REPOSITORY/contents/release.md" \
+            -f message="Remove release.md after releasing $TAG" \
+            -f sha="$CURRENT" \
+            -f branch="$BRANCH" \
+            --jq '"Removed in " + .commit.sha'

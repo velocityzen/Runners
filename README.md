@@ -22,6 +22,24 @@ API quota 3,597/5,000 · resets 10:46
 
 ## Install
 
+Each [release](https://github.com/velocityzen/Runners/releases) has a build for Apple silicon. It needs macOS 27.
+
+```bash
+curl -fsSLO https://github.com/velocityzen/Runners/releases/latest/download/runners-macos-arm64.tar.gz
+```
+
+```bash
+curl -fsSL https://github.com/velocityzen/Runners/releases/latest/download/runners-macos-arm64.tar.gz.sha256 | shasum -a 256 -c -
+```
+
+```bash
+tar -xzf runners-macos-arm64.tar.gz && mv runners /usr/local/bin/
+```
+
+The binary is not notarized. `curl` doesn't mark it as downloaded, so it runs as is; one downloaded with a browser needs `xattr -d com.apple.quarantine runners` first.
+
+Or build it, with Swift 6.4:
+
 ```bash
 swift build -c release
 ```
@@ -29,8 +47,6 @@ swift build -c release
 ```bash
 cp .build/release/runners /usr/local/bin/
 ```
-
-Requires Swift 6.4 and macOS 27.
 
 ## Use
 
@@ -199,3 +215,21 @@ swift format lint --strict --recursive Sources Tests Package.swift
 ```
 
 The design notes in `docs/` cover the runner APIs of other CI providers.
+
+### CI and releases
+
+`.github/workflows/ci.yml` runs on pushes to `main` and on pull requests: swift-format in strict lint mode, then the build and tests on macOS 27 (GitHub's `xcode-27` image). [zizmor](https://zizmor.sh) audits the workflows first whenever `.github` changes.
+
+To release, write the notes in `release.md` at the root of the repository, commit it, then tag that commit with the version and push the tag:
+
+```bash
+git tag 0.1.0
+```
+
+```bash
+git push origin 0.1.0
+```
+
+`.github/workflows/release.yml` then tests the tagged commit, builds `runners` for Apple silicon, and publishes a GitHub release titled with the tag, with `release.md` as its notes and `runners-macos-arm64.tar.gz` and its `.sha256` attached. A tag with a suffix, such as `1.2.0-beta.1`, makes a pre-release.
+
+Once the release is out, the workflow removes `release.md` from `main` in a commit of its own, so pull before writing the next notes. It leaves the file alone if `main` already has different notes in it. A tag whose commit has no `release.md`, or only blank lines in it, releases nothing.
