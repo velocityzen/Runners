@@ -1,3 +1,4 @@
+import FP
 import Foundation
 
 extension TextReport {
@@ -38,7 +39,7 @@ extension TextReport {
         switch job.status {
             case .running:
                 [job.runner, job.currentStep.map { "→ \($0)" }]
-                    .compactMap { $0 }
+                    .compact()
                     .joined(separator: " ")
             case .completed: job.runner ?? ""
             default: job.labels.joined(separator: ", ")

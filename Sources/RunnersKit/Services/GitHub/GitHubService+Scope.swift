@@ -54,7 +54,7 @@ extension GitHubService {
         .map { found in
             MonitorScope(
                 owner: owner,
-                repositories: found.compactMap { $0 },
+                repositories: found.compact(),
                 repositoryCount: repositories.count
             )
         }

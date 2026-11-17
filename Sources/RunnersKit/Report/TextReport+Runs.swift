@@ -1,3 +1,4 @@
+import FP
 import Foundation
 
 extension TextReport {
@@ -21,7 +22,7 @@ extension TextReport {
         let number = run.number.map { " #\($0)" } ?? ""
         let attempt = (run.attempt ?? 1) > 1 ? " (attempt \(run.attempt ?? 1))" : ""
         let name = style.paint(run.name + number + attempt, .bold)
-        return [name, run.title].compactMap { $0 }.joined(separator: "  ")
+        return [name, run.title].compact().joined(separator: "  ")
     }
 
     func details(_ active: ActiveRun) -> String {
@@ -33,7 +34,7 @@ extension TextReport {
             run.actor.map { "@\($0)" },
             active.jobs.flatMap(progress),
         ]
-        .compactMap { $0 }
+        .compact()
         .joined(separator: " · ")
     }
 

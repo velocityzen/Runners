@@ -1,3 +1,5 @@
+import FP
+
 /// What a watch remembers between snapshots, so a run that finishes stays on show with how it
 /// ended until a newer run of the same workflow on the same branch takes its place.
 struct WatchHistory: Sendable {
@@ -25,7 +27,7 @@ struct WatchHistory: Sendable {
         ended: [(run: ActiveRun, latest: Result<ActiveRun, RunnersError>)]
     ) -> StatusSnapshot {
         let retries = ended.compactMap { $0.latest.isRetryable ? $0.run : nil }
-        let justFinished = ended.compactMap { try? $0.latest.get() }.filter(\.isFinished)
+        let justFinished = ended.map(\.latest).successes().filter(\.isFinished)
         unfinished = Dictionary(
             (snapshot.runs + retries).map { ($0.id, $0) },
             uniquingKeysWith: { new, _ in new }
