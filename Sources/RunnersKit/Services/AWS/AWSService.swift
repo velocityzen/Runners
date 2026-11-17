@@ -12,10 +12,17 @@ public struct AWSService: CIService {
 
     public var provider: any Provider { AWSProvider() }
 
-    /// - Parameter endpoint: CodeBuild's in one region, such as
-    ///   `https://codebuild.us-east-1.amazonaws.com`, whose region signs the requests.
+    /// - Parameters:
+    ///   - refresh: Fetches new credentials, for ones that expire: it is called within five
+    ///     minutes of their ``AWSCredentials/expiration``, so a long watch keeps working. Calls
+    ///     sign with the old ones while a failed fetch is retried, at most every 30 seconds,
+    ///     and fail with its failure once they have expired. Nil, credentials are used as
+    ///     they are.
+    ///   - endpoint: CodeBuild's in one region, such as
+    ///     `https://codebuild.us-east-1.amazonaws.com`, whose region signs the requests.
     public init(
         credentials: AWSCredentials,
+        refresh: (@Sendable () async -> Result<AWSCredentials, RunnersError>)? = nil,
         endpoint: URL,
         transport: any HTTPTransport = URLSessionTransport(),
         retryPolicy: RetryPolicy = APIClient.defaultRetryPolicy,
@@ -23,6 +30,7 @@ public struct AWSService: CIService {
     ) {
         self.init(
             credentials: .success(credentials),
+            refresh: refresh,
             endpoint: endpoint,
             transport: transport,
             retryPolicy: retryPolicy,
@@ -33,6 +41,7 @@ public struct AWSService: CIService {
     /// With credentials in their token form, as ``AWSProvider`` passes them.
     init(
         credentials: Result<AWSCredentials, RunnersError>,
+        refresh: AWSCredentialsSource.Fetch? = nil,
         endpoint: URL,
         transport: any HTTPTransport,
         retryPolicy: RetryPolicy = APIClient.defaultRetryPolicy,
@@ -50,11 +59,9 @@ public struct AWSService: CIService {
                 client: AWSJSONClient(
                     endpoint: endpoint,
                     target: "CodeBuild_20161006",
-                    signer: SigV4(
-                        credentials: credentials,
-                        region: region.name,
-                        service: "codebuild"
-                    ),
+                    credentials: AWSCredentialsSource(credentials, refresh: refresh),
+                    region: region.name,
+                    service: "codebuild",
                     transport: transport,
                     retryPolicy: retryPolicy,
                     now: now

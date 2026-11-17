@@ -70,17 +70,7 @@ public struct AWSProvider: Provider {
 
     /// The AWS CLI's credentials, for its current profile: keys, SSO or a role.
     public func fallbackToken(apiURL: URL) async -> Result<String, RunnersError> {
-        await AWSCLI.credentials.token()
-            .flatMap { printed in
-                AWSCredentials.from(token: printed)
-                    .map(\.token)
-                    .mapError { _ in
-                        .tokenUnavailable(
-                            "\(AWSCLI.credentials.commandLine) printed no credentials; "
-                                + AWSCLI.credentials.hint
-                        )
-                    }
-            }
+        await AWSCLI.fetchCredentials().map(\.token)
     }
 
     public func isRepositoryName(_ name: String) -> Bool {
@@ -91,9 +81,14 @@ public struct AWSProvider: Provider {
         "a CodeBuild project name"
     }
 
+    /// Credentials that expire came from the AWS CLI, the one source that says when they do,
+    /// so it is asked for new ones before then. Ones that last are used as they are.
     public func service(token: String, apiURL: URL, transport: any HTTPTransport) -> any CIService {
-        AWSService(
-            credentials: AWSCredentials.from(token: token),
+        let credentials = AWSCredentials.from(token: token)
+        let expires = credentials.map { $0.expiration != nil }.getOrElse(false)
+        return AWSService(
+            credentials: credentials,
+            refresh: expires ? AWSCLI.fetchCredentials : nil,
             endpoint: apiURL,
             transport: transport
         )
@@ -114,4 +109,18 @@ enum AWSCLI {
         ["configure", "get", "region"],
         hint: "set AWS_REGION, or run `aws configure`"
     )
+
+    /// The credentials ``credentials`` prints, with when they expire.
+    static func fetchCredentials() async -> Result<AWSCredentials, RunnersError> {
+        await credentials.token()
+            .flatMap { printed in
+                AWSCredentials.from(token: printed)
+                    .mapError { _ in
+                        .tokenUnavailable(
+                            "\(credentials.commandLine) printed no credentials; "
+                                + credentials.hint
+                        )
+                    }
+            }
+    }
 }

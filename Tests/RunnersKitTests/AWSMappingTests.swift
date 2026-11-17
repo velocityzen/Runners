@@ -54,15 +54,65 @@ struct AWSMappingTests {
         )
         #expect(!"\(keys)".contains("secret"))
 
+        #expect(AWSCredentials.from(token: #"{"AccessKeyId":"A"}"#).isFailure)
+    }
+
+    @Test("keep when temporary keys expire, as the AWS CLI prints it, and carry it in the token")
+    func expiration() throws {
+        // 2026-11-17T18:00:00Z
+        let expiry = Date(timeIntervalSince1970: 1_794_938_400)
         let printed = """
             {"Version": 1, "AccessKeyId": "ASIA", "SecretAccessKey": "x", "SessionToken": "t",
              "Expiration": "2026-11-17T18:00:00+00:00"}
             """
+        let keys = try AWSCredentials.from(token: printed).get()
         #expect(
-            try AWSCredentials.from(token: printed).get()
-                == AWSCredentials(accessKeyID: "ASIA", secretAccessKey: "x", sessionToken: "t")
+            keys
+                == AWSCredentials(
+                    accessKeyID: "ASIA",
+                    secretAccessKey: "x",
+                    sessionToken: "t",
+                    expiration: expiry
+                )
         )
-        #expect(AWSCredentials.from(token: #"{"AccessKeyId":"A"}"#).isFailure)
+        #expect(keys.token.contains(#""Expiration":"2026-11-17T18:00:00Z""#))
+        #expect(try AWSCredentials.from(token: keys.token).get() == keys)
+
+        let fraction = """
+            {"AccessKeyId": "A", "SecretAccessKey": "s",
+             "Expiration": "2026-11-17T20:00:00.25+02:00"}
+            """
+        #expect(try AWSCredentials.from(token: fraction).get().expiration == expiry + 0.25)
+
+        #expect(!keys.expire(within: 5 * 60, of: expiry - 301))
+        #expect(keys.expire(within: 5 * 60, of: expiry - 300))
+        #expect(keys.expire(within: 0, of: expiry))
+        #expect(!AWSCredentials(accessKeyID: "A", secretAccessKey: "s").expire(within: 0, of: .now))
+    }
+
+    @Test("asks the AWS CLI for new credentials only when the ones it gave expire")
+    func refreshes() throws {
+        func refreshes(_ keys: AWSCredentials) throws -> Bool {
+            let service = try #require(
+                AWSProvider().service(
+                    token: keys.token,
+                    apiURL: AWSFixtures.endpoint,
+                    transport: FakeCodeBuild().transport()
+                ) as? AWSService
+            )
+            return try service.codeBuild.get().client.credentials.refresh != nil
+        }
+        #expect(try !refreshes(AWSFixtures.credentials))
+        #expect(
+            try refreshes(
+                AWSCredentials(
+                    accessKeyID: "ASIA",
+                    secretAccessKey: "x",
+                    sessionToken: "t",
+                    expiration: Fixtures.now
+                )
+            )
+        )
     }
 
     @Test("takes the key pair from its settings, both halves or neither")

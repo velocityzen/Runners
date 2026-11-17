@@ -9,7 +9,10 @@ struct AWSJSONClient: Sendable {
     let endpoint: URL
     /// The operations' prefix: `CodeBuild_20161006`.
     let target: String
-    let signer: SigV4
+    let credentials: AWSCredentialsSource
+    /// The region and service the requests are signed for: `us-east-1`, `codebuild`.
+    let region: String
+    let service: String
     let transport: any HTTPTransport
     let retryPolicy: RetryPolicy
     let now: @Sendable () -> Date
@@ -37,8 +40,12 @@ struct AWSJSONClient: Sendable {
             body: body
         )
         return await withRetry(retryPolicy, while: \.isTransient, requestedDelay: \.retryAfter) {
-            // Signed for each attempt, so a retry after a wait carries the time it is sent.
-            await transport.send(signer.sign(request, at: now()))
+            // Signed for each attempt, so a retry after a wait carries the time it is sent, and
+            // the credentials current then.
+            let now = now()
+            return await credentials.current(at: now)
+                .map { SigV4(credentials: $0, region: region, service: service) }
+                .flatMapAsync { signer in await transport.send(signer.sign(request, at: now)) }
                 .flatMap { $0.isSuccess ? .success($0) : .failure(RunnersError(aws: $0)) }
         }
     }

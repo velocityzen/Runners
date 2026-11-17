@@ -176,6 +176,47 @@ struct AWSServiceTests {
         #expect(dates[0] != dates[1])
     }
 
+    @Test("signs later calls with new credentials once the old ones near their expiry")
+    func refreshed() async throws {
+        let clock = Mutex(Fixtures.now)
+        let stub = codeBuild.transport()
+        let service = AWSService(
+            credentials: AWSCredentials(
+                accessKeyID: "OLD",
+                secretAccessKey: "secret",
+                sessionToken: "old-session",
+                expiration: Fixtures.now.addingTimeInterval(10 * 60)
+            ),
+            refresh: {
+                .success(
+                    AWSCredentials(
+                        accessKeyID: "NEW",
+                        secretAccessKey: "secret",
+                        sessionToken: "new-session",
+                        expiration: Fixtures.now.addingTimeInterval(70 * 60)
+                    )
+                )
+            },
+            endpoint: AWSFixtures.endpoint,
+            transport: stub,
+            retryPolicy: .limitRetries(0),
+            now: { clock.withLock { $0 } }
+        )
+        let monitor = RunsMonitor(service: service, now: { Fixtures.now })
+        _ = try await monitor.snapshot(StatusQuery()).get()
+        let first = stub.requests.count
+        clock.withLock { $0 = Fixtures.now.addingTimeInterval(6 * 60) }
+        _ = try await monitor.snapshot(StatusQuery()).get()
+
+        let sessions = stub.requests.map { $0.headers["X-Amz-Security-Token"] }
+        #expect(first > 0 && sessions.count > first)
+        #expect(sessions.prefix(first).allSatisfy { $0 == "old-session" })
+        #expect(sessions.dropFirst(first).allSatisfy { $0 == "new-session" })
+        #expect(
+            stub.requests.last?.headers["Authorization"]?.contains("Credential=NEW/") == true
+        )
+    }
+
     @Test("shows each build with its repository, its compute, and its phase or what it waits for")
     func report() async throws {
         let (result, _) = await snapshot(codeBuild)
