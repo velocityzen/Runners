@@ -17,14 +17,39 @@ struct GitHubAPI: Sendable {
         ]
     }
 
-    /// GitHub answers its secondary rate limit with 403, not always with a `Retry-After`.
+    /// GitHub answers its secondary rate limit with 403, not always with a `Retry-After`. Any
+    /// other 403 says which scope the token is missing, when GitHub tells.
     @Sendable
     static func classify(_ response: HTTPResponse, url: URL) -> RunnersError {
         let error = RunnersError(response: response, url: url)
-        guard case .forbidden(let message) = error,
-            response.retryAfter != nil || message.localizedStandardContains("secondary rate limit")
-        else { return error }
-        return .throttled(retryAfter: response.retryAfter)
+        guard case .forbidden(let message) = error else { return error }
+        if response.retryAfter != nil || message.localizedStandardContains("secondary rate limit") {
+            return .throttled(retryAfter: response.retryAfter)
+        }
+        return missingScope(response).map { .forbidden("\(message) \($0)") } ?? error
+    }
+
+    /// `The token needs the admin:org scope and has gist, repo; for gh's token,
+    /// gh auth refresh -s admin:org adds it.`, when a classic token has none of the scopes
+    /// GitHub says the endpoint takes. Fine-grained tokens have no scopes to compare.
+    static func missingScope(_ response: HTTPResponse) -> String? {
+        let accepted = scopes(response.header("X-Accepted-OAuth-Scopes"))
+        guard let first = accepted.first, let granted = response.header("X-OAuth-Scopes"),
+            Set(accepted).isDisjoint(with: scopes(granted))
+        else { return nil }
+        let needs =
+            accepted.count == 1
+            ? "the \(first) scope" : "one of the scopes \(accepted.joined(separator: ", "))"
+        let has = scopes(granted).isEmpty ? "none" : scopes(granted).joined(separator: ", ")
+        return "The token needs \(needs) and has \(has); "
+            + "for gh's token, gh auth refresh -s \(first) adds it."
+    }
+
+    /// `repo, read:org` as `["repo", "read:org"]`.
+    static func scopes(_ header: String?) -> [String] {
+        (header ?? "").split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     }
 
     /// The user the token belongs to.
@@ -84,6 +109,35 @@ struct GitHubAPI: Sendable {
             Self.repositoryPath(fullName) + ["actions", "runs", runID, "jobs"],
             [URLQueryItem(name: "filter", value: "latest"), .perPage],
             as: GitHubWorkflowJobsPage.self
+        )
+    }
+
+    /// An organization's self-hosted runners, its repositories' included.
+    func runners(ofOrganization login: String) async -> Result<[GitHubRunner], RunnersError> {
+        await client.all(
+            ["orgs", login, "actions", "runners"],
+            [.perPage],
+            as: GitHubRunnersPage.self
+        )
+    }
+
+    /// An organization's pools of larger GitHub-hosted runners.
+    func hostedRunners(
+        ofOrganization login: String
+    ) async -> Result<[GitHubHostedRunner], RunnersError> {
+        await client.all(
+            ["orgs", login, "actions", "hosted-runners"],
+            [.perPage],
+            as: GitHubHostedRunnersPage.self
+        )
+    }
+
+    /// A repository's own self-hosted runners.
+    func runners(in fullName: String) async -> Result<[GitHubRunner], RunnersError> {
+        await client.all(
+            Self.repositoryPath(fullName) + ["actions", "runners"],
+            [.perPage],
+            as: GitHubRunnersPage.self
         )
     }
 

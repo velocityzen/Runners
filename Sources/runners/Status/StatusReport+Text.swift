@@ -12,6 +12,11 @@ extension StatusReport {
         "\(snapshot.scope): \(snapshot.summary)"
     }
 
+    /// `acme on GitHub: 5 runners, 2 busy`
+    static func sentence(_ snapshot: RunnersSnapshot) -> String {
+        "\(snapshot.scope): \(snapshot.summary)"
+    }
+
     static func title(_ parts: [String?]) -> String {
         title(parts.compactMap(\.self).joined(separator: " "))
     }

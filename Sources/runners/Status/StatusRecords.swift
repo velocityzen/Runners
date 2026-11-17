@@ -20,6 +20,11 @@ struct StatusRecords: Sendable {
         }
     }
 
+    /// Only the root record, for a watch of runners.
+    mutating func update(runners result: Result<RunnersSnapshot, RunnersError>) -> [StatusReport] {
+        changed([result.match(StatusReport.watching, StatusReport.failed)])
+    }
+
     mutating func update(_ snapshot: StatusSnapshot) -> [StatusReport] {
         let records = snapshot.byRepository.flatMap { group in
             [StatusReport.repository(group)] + group.runs.map(StatusReport.run)

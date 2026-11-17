@@ -80,6 +80,8 @@ runners -p gitlab my-group       # a GitLab group, subgroups included (or a user
 runners -p gitlab -r my-group/sub/project
 runners -p aws                   # the CodeBuild runner projects of your AWS region
 runners -p aws -r gh-runner      # a CodeBuild project, runner project or not
+runners my-org --runners         # the organization's runners, busy first
+runners -p gitlab my-group --runners
 ```
 
 Options: `-s/--status` to pick which run statuses to show (default `running`, `queued`, `waiting`, `pending`), `--no-jobs` to skip job details, `--forks` to include forks, `-c/--concurrency` (default 16), `--api-url` for GitHub Enterprise, self-managed GitLab or a CodeBuild endpoint such as `https://codebuild-fips.us-east-1.amazonaws.com`, `--config` for a settings file. Flags that switch something on have a `--no-` form to override the config. `runners --help` has the rest.
@@ -92,11 +94,21 @@ A GitHub job whose labels ask for a runner vendor's machine names the vendor bef
 
 On AWS, each GitHub Actions job a runner project takes runs as one CodeBuild build, so `runners` shows each build as a run with one job: the build's project, number and repository, its compute type, image or fleet, and its phase. A build is **queued** until CodeBuild has provisioned it, then **running**; it is never waiting or pending.
 
+### Runners
+
+`--runners` lists runners instead of runs, grouped by what they are doing: **busy**, **idle**, **paused** (taking no new jobs) and **offline**, with why (offline, stale, never contacted). Each line names the runner, then its kind, vendor, OS or machine, labels and the job it is on. It works with `--watch`, which redraws the list, and `--json`, where each runner carries its `state`. A vendor's ephemeral runners register for one job, so they show only while they're alive.
+
+- **GitHub:** for an organization, its self-hosted runners, its repositories' included (`/orgs/{org}/actions/runners`), and its pools of larger GitHub-hosted runners (`/orgs/{org}/actions/hosted-runners`). The first need an org admin's token with the classic `admin:org` scope, or a fine-grained token with "Self-hosted runners" (read); `gh auth refresh -s admin:org` adds the scope to the GitHub CLI's token, and without it the error says which scope is missing. Larger runners need `manage_runners:org`; without it the list says they were left out. For a user or `-r`, each repository's own runners (`/repos/{owner}/{repo}/actions/runners`), which need admin access to the repository; the list says how many it couldn't read. GitHub doesn't say which job a runner is on; the runs show it, by runner name.
+- **GitLab:** with no owner, the runners you can manage (`/runners`); for a group, its runners and those of the groups above it (`/groups/:id/runners`), which need the Owner role and a token with the `manage_runner` scope; for a user or `-r`, each project's (`/projects/:id/runners`), which need the Maintainer role. Instance runners are left out, and the list says how many: on GitLab.com they are GitLab's own. A busy runner is read once more for the jobs it is on (`/runners/:id/jobs?status=running`). GitLab's lists leave out runners' tags, and the machines behind a runner (`/runners/:id/managers`) are not read.
+
+That is one request per hundred runners (two for a GitHub organization), one per repository or project for a user or `-r`, and one per busy GitLab runner, again on each `--watch` refresh. GitHub answers that haven't changed are free, as for runs.
+
 ### Terminal status
 
 `runners` reports what it is doing to the terminal with the [Program Status Protocol](https://www.superlogical.com/rex/docs/build/program-status) (OSC 7501), through [ProgramStatus](https://github.com/velocityzen/ProgramStatus). A terminal that knows the protocol shows it; others ignore it. Reports go to the controlling terminal, so `--json` and pipes stay clean.
 
 - A check is **working** while it runs, then **done** with a summary, or **error**.
+- With `--watch --runners`, only the root record is sent: **working** while a runner is busy, **idle** otherwise, **error** when a refresh fails.
 - With `--watch`, the root record is **idle** with no active runs, **working** with some, **blocked** while one waits for approval, and **error** when a refresh fails. Each repository on screen gets a record titled with its name, and each run one beneath it, with its jobs' progress. A finished run's record keeps how it ended: **done** when it passed, **error** when it failed or timed out, **idle** when cancelled. A repository whose runs have all finished is **error** if one failed, otherwise **done**. Records go when their runs leave the screen. A record is sent only when it changes, so a refresh where nothing changed sends nothing.
 - Ctrl-C clears those records, leaves the root **idle**, and exits with 130.
 
@@ -233,7 +245,7 @@ for await snapshot in monitor.watch(query, every: .seconds(15)) {
 
 ### Layout
 
-- `Domain/` — the shared types every service maps onto: `Owner`, `Repository`, `Run`, `Job`, `RunStatus`, `Conclusion`, `RateLimit`, `RunnersError`; and `Provider`, the protocol a service describes itself with.
+- `Domain/` — the shared types every service maps onto: `Owner`, `Repository`, `Run`, `Job`, `RunStatus`, `Conclusion`, `Runner`, `RateLimit`, `RunnersError`; and `Provider`, the protocol a service describes itself with.
 - `Monitor/` — `CIService`, the protocol a service implements, and `RunsMonitor`, which drives one.
 - `Services/<Service>/` — one folder per service: its `Provider`, its `CIService`, its wire types and endpoints, and the mapping from its responses to the domain types. `Services/Providers.swift` lists the built-in ones.
 - `HTTP/` — the shared REST client: auth headers, `Link` pagination, retries, `ETag` caching.

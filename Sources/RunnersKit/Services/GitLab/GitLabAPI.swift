@@ -66,4 +66,18 @@ struct GitLabAPI: Sendable {
             as: [GitLabJob].self
         )
     }
+
+    /// Runners by the path that lists them: `runners`, `groups/:id/runners` or
+    /// `projects/:id/runners`.
+    func runners(_ path: [String]) async -> Result<[GitLabRunner], RunnersError> {
+        await client.all(path, [.perPage], as: [GitLabRunner].self)
+    }
+
+    /// The jobs a runner is on, from the first page: a runner runs a few at a time at most.
+    func runningJobs(of runnerID: Int) async -> Result<[GitLabRunnerJob], RunnersError> {
+        await client.value(
+            ["runners", String(runnerID), "jobs"],
+            [URLQueryItem(name: "status", value: "running"), .perPage]
+        )
+    }
 }

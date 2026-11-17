@@ -57,6 +57,9 @@ struct StatusCommand: AsyncParsableCommand {
     )
     var concurrency: Int?
 
+    @Flag(help: "List the runners and what they are doing, instead of the runs.")
+    var runners = false
+
     @Flag(help: "Print the snapshot as JSON.")
     var json = false
 
@@ -134,7 +137,8 @@ struct StatusCommand: AsyncParsableCommand {
                 showsPassedJobs: settings.display.showsPassedJobs
             ),
             status: TerminalStatus(enabled: settings.display.reportsProgramStatus),
-            cache: cache
+            cache: cache,
+            listsRunners: runners
         )
         let watches = watch
         let signals = await processSignals([SIGINT, SIGTERM])

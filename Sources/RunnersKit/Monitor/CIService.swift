@@ -18,6 +18,20 @@ public protocol CIService: Sendable {
 
     /// The API quota left, when the service reports one.
     func rateLimit() async -> RateLimit?
+
+    /// The runners of the query's target, for services that have their own.
+    func runners(for query: StatusQuery) async -> Result<RunnerListing, RunnersError>
+}
+
+extension CIService {
+    /// Fails: the service has no runners of its own to list.
+    public func runners(for query: StatusQuery) async -> Result<RunnerListing, RunnersError> {
+        .failure(
+            .configuration(
+                "\(provider.name) has no runners to list; --runners works with GitHub and GitLab."
+            )
+        )
+    }
 }
 
 /// The repositories to check, and whose they are.

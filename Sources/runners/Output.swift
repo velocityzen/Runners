@@ -28,6 +28,25 @@ struct Output: Sendable {
         )
     }
 
+    func render(_ snapshot: RunnersSnapshot) -> Result<String, RunnersError> {
+        json ? snapshot.json() : .success(report.render(snapshot))
+    }
+
+    /// One `--watch --runners` screen, kept like the runs' when a refresh fails.
+    func screen(
+        forRunners result: Result<RunnersSnapshot, RunnersError>,
+        shown: RunnersSnapshot?,
+        at now: Date = Date()
+    ) -> String {
+        result.match(
+            { report(at: now).render($0) },
+            { error in
+                shown.map { report(at: now).render($0, refreshFailed: error, lastAttempt: now) }
+                    ?? screen(error, at: now)
+            }
+        )
+    }
+
     func screen(_ error: RunnersError, at now: Date) -> String {
         let time = now.formatted(date: .omitted, time: .standard)
         return "\(error.localizedDescription)\n\nRetrying… (last attempt \(time))"

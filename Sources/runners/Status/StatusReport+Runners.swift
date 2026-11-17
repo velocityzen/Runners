@@ -28,6 +28,24 @@ extension StatusReport {
         return snapshot.activeRuns.isEmpty ? .idle(text) : .working(text)
     }
 
+    /// The root record while a one-off list of runners is read.
+    static func checkingRunners(_ provider: any Provider) -> StatusReport {
+        .working("Checking runners on \(provider.name)")
+    }
+
+    static func checkedRunners(_ result: Result<RunnersSnapshot, RunnersError>) -> StatusReport {
+        result.match(
+            { .done(message(sentence($0))) },
+            failed
+        )
+    }
+
+    /// The root record while watching runners: working while any is busy, idle otherwise.
+    static func watching(_ snapshot: RunnersSnapshot) -> StatusReport {
+        let text = message(sentence(snapshot))
+        return snapshot.runners.contains { $0.state == .busy } ? .working(text) : .idle(text)
+    }
+
     static func failed(_ error: RunnersError) -> StatusReport {
         .error(message(error.localizedDescription))
     }

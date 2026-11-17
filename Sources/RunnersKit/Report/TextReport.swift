@@ -38,13 +38,18 @@ public struct TextReport: Sendable {
 
     /// `⚠ Network error: …`, then
     /// `Showing the runs as of 10:42:13 · retrying, last attempt 10:43:01`
-    func failedRefresh(_ error: RunnersError, shownAt: Date, lastAttempt: Date) -> [String] {
+    func failedRefresh(
+        _ error: RunnersError,
+        shownAt: Date,
+        lastAttempt: Date,
+        showing: String = "runs"
+    ) -> [String] {
         let shown = shownAt.formatted(date: .omitted, time: .standard)
         let attempt = lastAttempt.formatted(date: .omitted, time: .standard)
         return [
             style.paint("⚠ \(error.localizedDescription)", .yellow),
             style.paint(
-                "Showing the runs as of \(shown) · retrying, last attempt \(attempt)",
+                "Showing the \(showing) as of \(shown) · retrying, last attempt \(attempt)",
                 .dim
             ),
         ]
@@ -62,7 +67,12 @@ public struct TextReport: Sendable {
     }
 
     func footer(_ snapshot: StatusSnapshot) -> [String] {
-        guard let limit = snapshot.rateLimit else { return [] }
+        footer(snapshot.rateLimit)
+    }
+
+    /// `API quota 4,321/5,000 · resets 11:00`, after a blank line.
+    func footer(_ rateLimit: RateLimit?) -> [String] {
+        guard let limit = rateLimit else { return [] }
         let reset = limit.resetAt.formatted(date: .omitted, time: .shortened)
         let text =
             "API quota \(limit.remaining.formatted())/\(limit.limit.formatted()) · resets \(reset)"
