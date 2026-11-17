@@ -142,12 +142,19 @@ struct StatusCommand: AsyncParsableCommand {
             cache: cache
         )
         let watches = watch
-        let signals = await processSignals(Interruption.signals)
+        let signals = await processSignals([SIGINT, SIGTERM])
 
-        switch await Interruption.race(
-            { await watches ? session.watch() : session.check() },
-            until: signals
-        ) {
+        // Whichever ends first: the session, or a signal. `withAny` cancels the other and
+        // returns once it stops, so the session cleans up after a signal. A signal stream that
+        // ends without a signal fails, and a failure never wins.
+        let ending = await withAny(
+            await .success(watches ? session.watch() : session.check()),
+            await Result.fromOptional(signals.first { _ in true }, error: NoSignal())
+                .map { .interrupted(signal: $0) }
+        )
+
+        // Only the signals can fail, so the session always gives a value.
+        switch ending.getOrElse({ _ in .finished(.success(())) }) {
             case .finished(let result):
                 try result.get()
             case .interrupted(let signal):
@@ -174,3 +181,6 @@ struct StatusCommand: AsyncParsableCommand {
         )
     }
 }
+
+/// The signals stream ended without a signal: it was cancelled, or could not subscribe.
+private struct NoSignal: Error {}
