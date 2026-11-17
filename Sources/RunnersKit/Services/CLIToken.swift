@@ -27,15 +27,23 @@ public struct CLIToken: Sendable, Hashable {
 
     /// The token the command prints.
     public func token() async -> Result<String, RunnersError> {
-        await printed()
+        await value(RunnersError.tokenUnavailable)
+    }
+
+    /// What the command prints, trimmed, for a setting other than a token, such as
+    /// `aws configure get region`. A failure is `failure` with the reason and the hint.
+    public func value(
+        _ failure: @escaping @Sendable (String) -> RunnersError
+    ) async -> Result<String, RunnersError> {
+        let nothing = NoValue(reason: "\(commandLine) printed nothing")
+        return await printed()
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .flatMap {
-                $0.isEmpty ? .failure(unavailable("\(commandLine) printed nothing")) : .success($0)
-            }
+            .flatMap { $0.isEmpty ? .failure(nothing) : .success($0) }
+            .mapError { failure("\($0.reason); \(hint)") }
     }
 
     /// What the command printed, when it exited with 0.
-    func printed() async -> Result<String, RunnersError> {
+    func printed() async -> Result<String, NoValue> {
         await Result.fromAsync {
             let run = try await Subprocess.run(
                 .name(command),
@@ -50,11 +58,11 @@ public struct CLIToken: Sendable, Hashable {
                 errorOutput: run.standardError
             )
         }
-        .mapError { unavailable(reason(for: $0)) }
+        .mapError { NoValue(reason: reason(for: $0)) }
         .flatMap { finished in
             finished.status.isSuccess
                 ? .success(finished.output)
-                : .failure(unavailable(ending(of: finished)))
+                : .failure(NoValue(reason: ending(of: finished)))
         }
     }
 
@@ -63,8 +71,9 @@ public struct CLIToken: Sendable, Hashable {
         "`" + ([command] + arguments).joined(separator: " ") + "`"
     }
 
-    func unavailable(_ reason: String) -> RunnersError {
-        .tokenUnavailable("\(reason); \(hint)")
+    /// Why the command gave nothing, for a message.
+    struct NoValue: Error {
+        let reason: String
     }
 
     /// Why a command that did not exit with 0 gave no token.

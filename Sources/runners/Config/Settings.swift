@@ -5,7 +5,8 @@ import RunnersKit
 /// Everything a status check needs: the command line first, then the config, then defaults.
 struct Settings: Sendable {
     let provider: any Provider
-    let apiURL: URL
+    /// The configured API URL; nil leaves it to the provider's fallback.
+    let apiURL: URL?
     /// The configured token; nil leaves it to the provider's fallback.
     let token: String?
     let query: StatusQuery
@@ -50,14 +51,15 @@ struct Settings: Sendable {
         ResultDo<RunnersError>()
             .bind { providers.choice(given.provider, in: config) }
             .bind { provider in provider.apiURL(given.apiURL, in: config) }
-            .bind { _, _ in query(given, config) }
-            .bind { _, _, _ in display(given, config, isTerminal: isTerminal) }
-            .bind { _, _, _, _ in config.flag(given.cache, .cache, default: true) }
-            .map { provider, apiURL, query, display, cachesResponses in
+            .bind { provider, _ in provider.token(in: config) }
+            .bind { provider, _, _ in query(given, config, provider: provider) }
+            .bind { _, _, _, _ in display(given, config, isTerminal: isTerminal) }
+            .bind { _, _, _, _, _ in config.flag(given.cache, .cache, default: true) }
+            .map { provider, apiURL, token, query, display, cachesResponses in
                 Settings(
                     provider: provider,
                     apiURL: apiURL,
-                    token: provider.token(in: config),
+                    token: token,
                     query: query,
                     display: display,
                     cachesResponses: cachesResponses
@@ -86,23 +88,42 @@ struct Settings: Sendable {
         }
     }
 
-    /// The service to ask, with the configured token or else the provider's fallback.
+    /// The service to ask, with the configured API URL and token, or else the provider's
+    /// fallbacks.
     func service(cache: ETagCache) async -> Result<any CIService, RunnersError> {
         let transport = ConditionalTransport(URLSessionTransport(), cache: cache)
-        return await resolvedToken()
-            .map { provider.service(token: $0, apiURL: apiURL, transport: transport) }
+        let provider = provider
+        return await resolvedAPIURL()
+            .flatMapAsync { apiURL in
+                await resolvedToken(apiURL: apiURL)
+                    .map { provider.service(token: $0, apiURL: apiURL, transport: transport) }
+            }
+    }
+
+    func resolvedAPIURL() async -> Result<URL, RunnersError> {
+        guard let apiURL else { return await provider.fallbackAPIURL() }
+        return .success(apiURL)
     }
 
     func resolvedToken() async -> Result<String, RunnersError> {
+        await resolvedAPIURL().flatMapAsync { await resolvedToken(apiURL: $0) }
+    }
+
+    func resolvedToken(apiURL: URL) async -> Result<String, RunnersError> {
         guard let token else { return await provider.fallbackToken(apiURL: apiURL) }
         return .success(token)
     }
 }
 
 extension Settings {
-    static func query(_ given: Overrides, _ config: Config) -> Result<StatusQuery, RunnersError> {
+    static func query(
+        _ given: Overrides,
+        _ config: Config,
+        provider: any Provider
+    ) -> Result<StatusQuery, RunnersError> {
         flatten(
-            given.target.map(Result.success) ?? target(config),
+            given.target.map { target(given: $0, provider: provider) }
+                ?? target(config, provider: provider),
             statuses(given, config),
             config.flag(given.jobs, .jobs, default: true),
             config.flag(given.forks, .forks, default: false),
@@ -119,18 +140,40 @@ extension Settings {
         }
     }
 
+    /// The command line's owner, or its repositories, named as the provider names them.
+    static func target(
+        given: StatusQuery.Target,
+        provider: any Provider
+    ) -> Result<StatusQuery.Target, RunnersError> {
+        guard case .repositories(let names) = given else { return .success(given) }
+        return names.traverse { name in
+            provider.isRepositoryName(name)
+                ? .success(name)
+                : .failure(
+                    .configuration(
+                        "--repo is \"\(name)\", expected \(provider.repositoryNameFormat)"
+                    )
+                )
+        }
+        .map(StatusQuery.Target.repositories)
+    }
+
     /// Owner and repositories go together: the first source that sets either decides both.
-    static func target(_ config: Config) -> Result<StatusQuery.Target, RunnersError> {
+    static func target(
+        _ config: Config,
+        provider: any Provider
+    ) -> Result<StatusQuery.Target, RunnersError> {
         config.sources.lazy
             .map { (owner: $0.text(.owner), repositories: $0.list(.repositories)) }
             .first { $0.owner != nil || !$0.repositories.isEmpty }
-            .map { target(owner: $0.owner, repositories: $0.repositories) }
+            .map { target(owner: $0.owner, repositories: $0.repositories, provider: provider) }
             ?? .success(.authenticatedUser)
     }
 
     static func target(
         owner: String?,
-        repositories: [String]
+        repositories: [String],
+        provider: any Provider
     ) -> Result<StatusQuery.Target, RunnersError> {
         if owner != nil, !repositories.isEmpty {
             return .failure(
@@ -138,17 +181,18 @@ extension Settings {
             )
         }
         if let owner { return .success(.owner(owner)) }
-        return repositories.traverse(fullName).map(StatusQuery.Target.repositories)
+        return repositories.traverse { repositoryName($0, provider: provider) }
+            .map(StatusQuery.Target.repositories)
     }
 
-    static func fullName(_ name: String) -> Result<String, RunnersError> {
-        StatusQuery.Target.isFullName(name)
+    static func repositoryName(
+        _ name: String,
+        provider: any Provider
+    ) -> Result<String, RunnersError> {
+        provider.isRepositoryName(name)
             ? .success(name)
             : .failure(
-                SettingKey.repositories.invalid(
-                    name,
-                    expected: "owner/name, or group/…/name"
-                )
+                SettingKey.repositories.invalid(name, expected: provider.repositoryNameFormat)
             )
     }
 

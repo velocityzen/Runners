@@ -142,16 +142,22 @@ struct GitLabMappingTests {
 @Suite("Built-in providers")
 struct BuiltInProviderTests {
     @Test("come GitHub first, each building a service that names it")
-    func builtIn() {
-        #expect(Providers.builtIn.map(\.id) == ["github", "gitlab"])
-        for provider in Providers.builtIn {
+    func builtIn() async throws {
+        #expect(Providers.builtIn.map(\.id) == ["github", "gitlab", "aws"])
+        for provider in Providers.builtIn where provider.id != "aws" {
             let service = provider.service(
                 token: "t",
-                apiURL: provider.defaultAPIURL,
+                apiURL: try await provider.fallbackAPIURL().get(),
                 transport: StubTransport { _, _ in .raw(500) }
             )
             #expect(service.provider.id == provider.id)
         }
+        let aws = AWSProvider().service(
+            token: AWSFixtures.credentials.token,
+            apiURL: AWSFixtures.endpoint,
+            transport: StubTransport { _, _ in .raw(500) }
+        )
+        #expect(aws.provider.id == "aws")
     }
 
     @Test("read a GitLab host or API URL, and a GitHub API URL")

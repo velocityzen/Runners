@@ -16,7 +16,10 @@ struct AnyProviderTests {
             .environment("forge.ci_token"), .setting("forge.token"),
         ]
         let apiURLSettings: [ProviderSetting] = [.setting("forge.host")]
-        let defaultAPIURL = URL(filePath: "/forge")
+
+        func fallbackAPIURL() async -> Result<URL, RunnersError> {
+            .success(URL(filePath: "/forge"))
+        }
 
         func apiURL(_ value: String, from setting: ProviderSetting) -> URL? {
             URL(string: "https://\(value)/api")
@@ -56,13 +59,15 @@ struct AnyProviderTests {
         try fixture.local("forge.token=from-file")
         let settings = try await fixture.settings().get()
         #expect(settings.token == "from-ci")
-        #expect(settings.apiURL == URL(filePath: "/forge"))
+        #expect(settings.apiURL == nil)
+        #expect(try await settings.resolvedAPIURL().get() == URL(filePath: "/forge"))
         try fixture.local("forge.ci_token=x")
         let problem = try #require(await fixture.settings().configurationProblem)
         #expect(problem.contains("unknown setting \"forge.ci_token\""))
         #expect(
             problem.hasSuffix(
-                "github.token, github.api_url, gitlab.token, gitlab.host, forge.token, forge.host"
+                "github.token, github.api_url, gitlab.token, gitlab.host, aws.access_key_id, "
+                    + "aws.secret_access_key, aws.session_token, aws.region, forge.token, forge.host"
             )
         )
     }

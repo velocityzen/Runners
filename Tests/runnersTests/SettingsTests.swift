@@ -10,7 +10,8 @@ struct SettingsTests {
     func defaults() async throws {
         let settings = try await ConfigFixture().settings().get()
         #expect(settings.provider.id == "github")
-        #expect(settings.apiURL == GitHubService.defaultBaseURL)
+        #expect(settings.apiURL == nil)
+        #expect(try await settings.resolvedAPIURL().get() == GitHubService.defaultBaseURL)
         #expect(settings.token == nil)
         #expect(settings.query == StatusQuery(target: .authenticatedUser))
         #expect(!settings.display.showsPassedJobs)
@@ -38,7 +39,7 @@ struct SettingsTests {
         )
         let settings = try await fixture.settings().get()
         #expect(settings.provider.id == "gitlab")
-        #expect(settings.apiURL.absoluteString == "https://gitlab.example.com/api/v4")
+        #expect(settings.apiURL?.absoluteString == "https://gitlab.example.com/api/v4")
         #expect(settings.token == "glpat-file")
         #expect(
             settings.query
@@ -71,7 +72,7 @@ struct SettingsTests {
         given.apiURL = "https://ghe.example.com/api/v3"
         let settings = try await fixture.settings(given).get()
         #expect(settings.provider.id == "github")
-        #expect(settings.apiURL.absoluteString == "https://ghe.example.com/api/v3")
+        #expect(settings.apiURL?.absoluteString == "https://ghe.example.com/api/v3")
         #expect(
             settings.query
                 == StatusQuery(
@@ -148,7 +149,7 @@ struct SettingsTests {
             "CI_API_V4_URL": "https://ci.example.com/api/v4",
         ]
         #expect(
-            try await fixture.settings().get().apiURL.absoluteString
+            try await fixture.settings().get().apiURL?.absoluteString
                 == "https://ci.example.com/api/v4"
         )
     }

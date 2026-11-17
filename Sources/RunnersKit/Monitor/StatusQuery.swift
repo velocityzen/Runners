@@ -31,3 +31,11 @@ public struct StatusQuery: Sendable, Equatable {
         self.concurrency = max(1, concurrency)
     }
 }
+
+extension StatusQuery.Target {
+    /// `owner/name`, or `group/…/name` where groups nest.
+    public static func isFullName(_ name: String) -> Bool {
+        let parts = name.split(separator: "/", omittingEmptySubsequences: false)
+        return parts.count >= 2 && parts.allSatisfy { !$0.isEmpty }
+    }
+}

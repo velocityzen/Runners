@@ -17,8 +17,8 @@ public struct GitHubProvider: Provider {
         ("repository", "repositories")
     }
 
-    public var defaultAPIURL: URL {
-        GitHubService.defaultBaseURL
+    public func fallbackAPIURL() async -> Result<URL, RunnersError> {
+        .success(GitHubService.defaultBaseURL)
     }
 
     public func fallbackToken(apiURL: URL) async -> Result<String, RunnersError> {

@@ -1,6 +1,6 @@
 # Runners
 
-See every CI run that is still going — running, queued, waiting for approval, or pending — across all repositories of a user, organization or GitLab group, down to the job, the runner that picked it up, and the step it is on. Works with GitHub Actions and GitLab CI.
+See every CI run that is still going — running, queued, waiting for approval, or pending — across all repositories of a user, organization or GitLab group, down to the job, the runner that picked it up, and the step it is on. Works with GitHub Actions, GitLab CI, and the GitHub Actions runners that AWS CodeBuild hosts.
 
 `RunnersKit` is the library; `runners` is its command-line front-end.
 
@@ -78,13 +78,17 @@ runners my-org --watch           # redraw every 15s (-i to change)
 runners my-org --json            # machine-readable snapshot
 runners -p gitlab my-group       # a GitLab group, subgroups included (or a user)
 runners -p gitlab -r my-group/sub/project
+runners -p aws                   # the CodeBuild runner projects of your AWS region
+runners -p aws -r gh-runner      # a CodeBuild project, runner project or not
 ```
 
-Options: `-s/--status` to pick which run statuses to show (default `running`, `queued`, `waiting`, `pending`), `--no-jobs` to skip job details, `--forks` to include forks, `-c/--concurrency` (default 16), `--api-url` for GitHub Enterprise or self-managed GitLab, `--config` for a settings file. Flags that switch something on have a `--no-` form to override the config. `runners --help` has the rest.
+Options: `-s/--status` to pick which run statuses to show (default `running`, `queued`, `waiting`, `pending`), `--no-jobs` to skip job details, `--forks` to include forks, `-c/--concurrency` (default 16), `--api-url` for GitHub Enterprise, self-managed GitLab or a CodeBuild endpoint such as `https://codebuild-fips.us-east-1.amazonaws.com`, `--config` for a settings file. Flags that switch something on have a `--no-` form to override the config. `runners --help` has the rest.
 
 With `--watch`, a run that finishes stays on screen with how it ended (`✓ success in 3m 12s, 2m ago`, `✗ failure …`, `⊘ cancelled …`) until a newer run of the same workflow on the same branch takes its place, or you stop watching. A run that is re-run shows as active again.
 
-Statuses mean the same on both services: **queued** waits for a runner; **pending** waits on something else first (a concurrency group, earlier stages, a resource); **waiting** waits for a person or a timer (an approval, a manual job, a delay).
+Statuses mean the same on every service: **queued** waits for a runner; **pending** waits on something else first (a concurrency group, earlier stages, a resource); **waiting** waits for a person or a timer (an approval, a manual job, a delay).
+
+On AWS, each GitHub Actions job a runner project takes runs as one CodeBuild build, so `runners` shows each build as a run with one job: the build's project, number and repository, its compute type, image or fleet, and its phase. A build is **queued** until CodeBuild has provisioned it, then **running**; it is never waiting or pending.
 
 ### Terminal status
 
@@ -100,6 +104,19 @@ Statuses mean the same on both services: **queued** waits for a runner; **pendin
 
 - **GitHub:** the first of `GH_TOKEN`, `GITHUB_TOKEN`, or the token of a signed-in [GitHub CLI](https://cli.github.com) (`gh auth token`). Private repositories need the classic `repo` scope, or a fine-grained token with Actions (read). For GitHub Enterprise, pass `--api-url https://ghe.example.com/api/v3` or set `GITHUB_API_URL`.
 - **GitLab:** `GITLAB_TOKEN` (or `GITLAB_ACCESS_TOKEN`), a personal access token with `read_api`. For a self-managed instance set `GITLAB_HOST` (as `glab` does), `CI_API_V4_URL`, or pass `--api-url https://gitlab.example.com/api/v4`.
+- **AWS CodeBuild:** `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, with `AWS_SESSION_TOKEN` for temporary keys; else the credentials of the [AWS CLI](https://aws.amazon.com/cli/) v2's current profile (`aws configure export-credentials`), so `AWS_PROFILE`, `aws sso login` and roles work as they do for the CLI. The region is `AWS_REGION`, else `AWS_DEFAULT_REGION`, else `aws configure get region`. Temporary credentials are read once, at the start: a `--watch` that outlives them shows the token rejected on every refresh until you start it again. The keys need these actions:
+
+  ```json
+  {
+    "Version": "2012-10-17",
+    "Statement": [{
+      "Effect": "Allow",
+      "Action": ["codebuild:ListProjects", "codebuild:BatchGetProjects",
+                 "codebuild:ListBuildsForProject", "codebuild:BatchGetBuilds"],
+      "Resource": "*"
+    }]
+  }
+  ```
 
 Any of these can also live in a `.env` or `.runners` file (below).
 
@@ -126,9 +143,9 @@ gitlab.host=gitlab.example.com
 
 | `.runners` | Environment, `.env` | Default |
 |---|---|---|
-| `provider` | `RUNNERS_PROVIDER` | `github`; or `gitlab` |
-| `owner` | `RUNNERS_OWNER` | the token's user |
-| `repos` | `RUNNERS_REPOS` | all of the owner's; `a/b, c/d` |
+| `provider` | `RUNNERS_PROVIDER` | `github`; or `gitlab`, `aws` |
+| `owner` | `RUNNERS_OWNER` | the token's user; none on AWS |
+| `repos` | `RUNNERS_REPOS` | all of the owner's; `a/b, c/d`, or project names on AWS |
 | `status` | `RUNNERS_STATUS` | `running, queued, waiting, pending` |
 | `jobs` | `RUNNERS_JOBS` | `true` |
 | `all_jobs` | `RUNNERS_ALL_JOBS` | `false` |
@@ -142,6 +159,10 @@ gitlab.host=gitlab.example.com
 | `github.api_url` | `GITHUB_API_URL` | `https://api.github.com` |
 | `gitlab.token` | `GITLAB_TOKEN`, `GITLAB_ACCESS_TOKEN` | |
 | `gitlab.host` | `GITLAB_HOST`, `CI_API_V4_URL` | `gitlab.com` |
+| `aws.access_key_id` | `AWS_ACCESS_KEY_ID` | `aws configure export-credentials` |
+| `aws.secret_access_key` | `AWS_SECRET_ACCESS_KEY` | |
+| `aws.session_token` | `AWS_SESSION_TOKEN` | |
+| `aws.region` | `AWS_REGION`, `AWS_DEFAULT_REGION` | `aws configure get region` |
 
 Only these names work in `.runners`: an environment name such as `GITHUB_TOKEN`, or a typo, is an error that lists the valid settings.
 
@@ -149,7 +170,7 @@ Only these names work in `.runners`: an environment name such as `GITHUB_TOKEN`,
 
 ## How it works, and what it costs
 
-Neither service has an account-wide "active runs" endpoint.
+No service has an account-wide "active runs" endpoint.
 
 On **GitHub**, `runners`:
 
@@ -170,14 +191,22 @@ On **GitLab**, `runners`:
 
 That is one request per project plus two per running pipeline (`--watch` lists the projects every five minutes), and in `--watch` mode two more for each pipeline when it finishes, to learn how it ended. `manual` jobs are not asked for: optional ones stay `manual` in finished pipelines forever. So a pipeline blocked only by a manual job, with nothing after it, does not show.
 
-On both, transient failures (network, 5xx, throttling) are retried with backoff, honoring `Retry-After`.
+On **AWS CodeBuild**, `runners`:
+
+1. lists the region's projects (`ListProjects`) and reads them a hundred at a time (`BatchGetProjects`), keeping the runner projects: those whose webhook takes `WORKFLOW_JOB_QUEUED` events. `-r` names projects instead, runner projects or not;
+2. reads those projects again for their timeouts, then lists each one's builds, newest first (`ListBuildsForProject`), and reads them (`BatchGetBuilds`);
+3. pages back until a page reaches a build older than the longest one could go on (the project's queued timeout plus its build timeout, plus 15 minutes); a build that old has finished.
+
+That is one `BatchGetProjects` per hundred projects plus two calls per project, more for a project that started over a hundred builds within its timeouts. `--watch` lists the projects every five minutes, and reads a build once more when it finishes. CodeBuild bills build minutes, not API calls; it throttles them instead. Nothing is cached: every CodeBuild call is a signed `POST`, which has no `ETag`.
+
+On all of them, transient failures (network, 5xx, throttling) are retried with backoff, honoring `Retry-After`.
 
 ## Library
 
 ```swift
 import RunnersKit
 
-let monitor = RunsMonitor(service: GitHubService(token: token))      // or GitLabService(token:)
+let monitor = RunsMonitor(service: GitHubService(token: token))      // or GitLabService(token:), AWSService(credentials:endpoint:)
 let snapshot = await monitor.snapshot(StatusQuery(target: .owner("my-org")))   // Result<StatusSnapshot, RunnersError>
 
 switch snapshot {
@@ -214,8 +243,11 @@ To add a service, add `Services/<Service>/` with a type conforming to `CIService
 
 - `id`, `name` and `repositoryTerm`: what the command line, config and reports call it;
 - `tokenSettings` and `apiURLSettings`: the settings it reads, most preferred first. `.setting("forge.token")` is `forge.token` in `.runners` and `FORGE_TOKEN` in the environment; `.environment("ci.token")` is another tool's variable, read from the environment only;
-- `defaultAPIURL`, and `apiURL(_:from:)` when a setting holds something other than a URL, such as a host;
-- `fallbackToken(apiURL:)`, for when no token is set. To borrow the token of a signed-in CLI, return `CLIToken("forge", ["auth", "token"], hint: "set FORGE_TOKEN").token()`, as GitHub does with `gh auth token`; a failure says why the CLI gave no token, then the hint;
+- `token(from:)`, when the credentials span several settings, as AWS's key pair does: it puts them into the one token string its service takes;
+- `apiURL(_:from:)` and `apiURLFormat(of:)`, when a setting holds something other than a URL, such as a host or a region;
+- `fallbackAPIURL()`, for when no API URL is set: the public service's, or one another tool is configured with, as AWS reads the region from `aws configure get region`;
+- `fallbackToken(apiURL:)`, for when no token is set. To borrow the token of a signed-in CLI, return `CLIToken("forge", ["auth", "token"], hint: "set FORGE_TOKEN").token()`, as GitHub does with `gh auth token`; a failure says why the CLI gave no token, then the hint. `CLIToken.value(_:)` reads anything else a CLI prints, with a failure of your choosing;
+- `isRepositoryName(_:)` and `repositoryNameFormat`, when `--repo` takes something other than full names, such as AWS's project names;
 - `service(token:apiURL:transport:)`, which builds its `CIService`.
 
 ## Develop

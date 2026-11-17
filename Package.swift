@@ -17,6 +17,7 @@ let package = Package(
         .package(url: "https://github.com/velocityzen/ProgramStatus", from: "0.4.1"),
         .package(url: "https://github.com/velocityzen/fp-swift-pipe", from: "2.5.0"),
         .package(url: "https://github.com/swiftlang/swift-subprocess", from: "1.0.2"),
+        .package(url: "https://github.com/apple/swift-crypto", from: "5.1.1"),
     ],
     targets: [
         .target(
@@ -26,6 +27,12 @@ let package = Package(
                 .product(name: "FPRetry", package: "fp-swift"),
                 .product(name: "FPPipe", package: "fp-swift-pipe"),
                 .product(name: "Subprocess", package: "swift-subprocess"),
+                // SHA-256 and HMAC for signing AWS requests: CryptoKit on Apple platforms.
+                .product(
+                    name: "Crypto",
+                    package: "swift-crypto",
+                    condition: .when(platforms: [.linux])
+                ),
             ],
             swiftSettings: callerIsolation
         ),

@@ -18,8 +18,8 @@ public struct GitLabProvider: Provider {
         ("project", "projects")
     }
 
-    public var defaultAPIURL: URL {
-        GitLabService.defaultBaseURL
+    public func fallbackAPIURL() async -> Result<URL, RunnersError> {
+        .success(GitLabService.defaultBaseURL)
     }
 
     /// `gitlab.host` takes a host or a URL, as `glab` does.

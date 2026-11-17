@@ -4,23 +4,25 @@ import RunnersKit
 
 /// How any provider's settings are read: its token and API URL from the settings it names.
 extension Provider {
-    func token(in config: Config) -> String? {
-        config.text(tokenSettings.map(SettingKey.init), isSecret: true)?.value
+    /// The configured token, or nil to leave it to the provider's fallback.
+    func token(in config: Config) -> Result<String?, RunnersError> {
+        token { settings in config.text(settings.map(SettingKey.init), isSecret: true)?.value }
     }
 
-    /// The URL given on the command line, else the first configured one, else the public
-    /// service's.
-    func apiURL(_ given: String?, in config: Config) -> Result<URL, RunnersError> {
-        if let given { return Settings.url(given) }
+    /// The URL given on the command line, else the first configured one, else nil to leave it
+    /// to the provider's fallback.
+    func apiURL(_ given: String?, in config: Config) -> Result<URL?, RunnersError> {
+        if let given { return Settings.url(given).map(Optional.some) }
         guard let (key, value) = config.text(apiURLSettings.map(SettingKey.init)),
             let setting = apiURLSettings.first(where: { SettingKey($0) == key })
         else {
-            return .success(defaultAPIURL)
+            return .success(nil)
         }
-        return .fromOptional(
+        let url = Result<URL, RunnersError>.fromOptional(
             apiURL(value, from: setting),
-            error: key.invalid(value, expected: "a URL")
+            error: key.invalid(value, expected: apiURLFormat(of: setting))
         )
+        return url.map(Optional.some)
     }
 }
 
@@ -41,7 +43,7 @@ extension Array where Element == any Provider {
         first { $0.id == id.lowercased() }
     }
 
-    /// `github or gitlab`
+    /// `github, gitlab or aws`
     var idList: String {
         map(\.id).formatted(.list(type: .or))
     }

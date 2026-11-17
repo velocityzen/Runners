@@ -111,11 +111,6 @@ struct StatusCommand: AsyncParsableCommand {
         guard owner == nil || repositories.isEmpty else {
             throw ValidationError("Pass an owner or --repo, not both.")
         }
-        guard repositories.allSatisfy(StatusQuery.Target.isFullName) else {
-            throw ValidationError(
-                "--repo takes the full name: owner/name, or group/…/name."
-            )
-        }
         guard !(json && watch) else {
             throw ValidationError("--json and --watch cannot be combined.")
         }

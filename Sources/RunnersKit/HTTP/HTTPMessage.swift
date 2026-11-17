@@ -1,13 +1,26 @@
 import Foundation
 
-/// A GET request: the read APIs this library uses need nothing more.
+/// A request: a GET for the REST APIs, a POST with a JSON body for AWS.
 public struct HTTPRequest: Sendable, Hashable {
+    public var method: String
     public var url: URL
     public var headers: [String: String]
+    public var body: Data?
 
-    public init(url: URL, headers: [String: String] = [:]) {
+    public init(
+        method: String = "GET",
+        url: URL,
+        headers: [String: String] = [:],
+        body: Data? = nil
+    ) {
+        self.method = method
         self.url = url
         self.headers = headers
+        self.body = body
+    }
+
+    public var isGet: Bool {
+        method == "GET"
     }
 }
 

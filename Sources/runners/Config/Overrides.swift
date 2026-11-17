@@ -22,11 +22,3 @@ struct Overrides: Sendable {
         return owner.map(StatusQuery.Target.owner)
     }
 }
-
-extension StatusQuery.Target {
-    /// `owner/name`, or `group/…/name` where groups nest.
-    static func isFullName(_ name: String) -> Bool {
-        let parts = name.split(separator: "/", omittingEmptySubsequences: false)
-        return parts.count >= 2 && parts.allSatisfy { !$0.isEmpty }
-    }
-}
