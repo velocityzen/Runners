@@ -60,9 +60,12 @@ public struct APIClient: Sendable {
     }
 
     func response(for url: URL) async -> Result<HTTPResponse, RunnersError> {
+        await response(for: HTTPRequest(url: url, headers: headers))
+    }
+
+    func response(for request: HTTPRequest) async -> Result<HTTPResponse, RunnersError> {
         await withRetry(retryPolicy, while: \.isTransient, requestedDelay: \.retryAfter) {
-            await transport.send(HTTPRequest(url: url, headers: headers))
-                .flatMap(check(url))
+            await transport.send(request).flatMap(check(request.url))
         }
     }
 
@@ -78,6 +81,26 @@ public struct APIClient: Sendable {
         as type: T.Type = T.self
     ) async -> Result<T, RunnersError> {
         await response(for: url(segments, query))
+            .flatMap { JSONCoding.decode(type, from: $0.body) }
+    }
+
+    /// One object, the answer to a `POST` of `body` as JSON, as RPC APIs such as Connect take
+    /// every call. Its headers say the body is JSON.
+    func post<T: Decodable>(
+        _ segments: [String],
+        body: some Encodable,
+        as type: T.Type = T.self
+    ) async -> Result<T, RunnersError> {
+        let url = url(segments)
+        var headers = headers
+        headers["Content-Type"] = "application/json"
+        return await Result { try JSONEncoder.sorted.encode(body) }
+            .mapError { RunnersError.encoding(String(describing: $0)) }
+            .flatMapAsync { body in
+                await response(
+                    for: HTTPRequest(method: "POST", url: url, headers: headers, body: body)
+                )
+            }
             .flatMap { JSONCoding.decode(type, from: $0.body) }
     }
 

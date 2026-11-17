@@ -144,7 +144,9 @@ struct BuiltInProviderTests {
     @Test("come GitHub first, each building a service that names it")
     func builtIn() async throws {
         #expect(
-            Providers.builtIn.map(\.id) == ["github", "gitlab", "forgejo", "woodpecker", "aws"]
+            Providers.builtIn.map(\.id) == [
+                "github", "gitlab", "forgejo", "woodpecker", "depot-ci", "aws",
+            ]
         )
         for provider in Providers.builtIn where provider.id != "aws" {
             let service = provider.service(
