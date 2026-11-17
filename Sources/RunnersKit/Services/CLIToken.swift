@@ -43,6 +43,7 @@ public struct CLIToken: Sendable, Hashable {
                 output: .string(limit: Self.outputLimit),
                 error: .string(limit: Self.outputLimit)
             )
+
             return Finished(
                 status: run.terminationStatus,
                 output: run.standardOutput,
