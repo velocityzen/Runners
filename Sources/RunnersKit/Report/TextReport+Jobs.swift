@@ -3,7 +3,7 @@ import Foundation
 
 extension TextReport {
     /// One aligned line per job: mark, name, time, then the runner (or, while queued, the
-    /// labels it waits for).
+    /// labels it waits for), after the vendor whose machine it is.
     func jobLines(_ jobs: [Job]) -> [String] {
         let rows = jobs.map(JobRow.init(job:))
         let nameWidth = rows.map(\.name.count).max() ?? 0
@@ -36,14 +36,17 @@ extension TextReport {
     }
 
     func runner(_ job: Job) -> String {
-        switch job.status {
-            case .running:
-                [job.runner, job.currentStep.map { "→ \($0)" }]
-                    .compact()
-                    .joined(separator: " ")
-            case .completed: job.runner ?? ""
-            default: job.labels.joined(separator: ", ")
-        }
+        let runner =
+            switch job.status {
+                case .running:
+                    [job.runner, job.currentStep.map { "→ \($0)" }]
+                        .compact()
+                        .joined(separator: " ")
+                case .completed: job.runner ?? ""
+                default: job.labels.joined(separator: ", ")
+            }
+        guard let host = job.runnerHost else { return runner }
+        return runner.isEmpty ? host.name : "\(host.name) · \(runner)"
     }
 }
 

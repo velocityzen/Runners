@@ -88,6 +88,8 @@ With `--watch`, a run that finishes stays on screen with how it ended (`✓ succ
 
 Statuses mean the same on every service: **queued** waits for a runner; **pending** waits on something else first (a concurrency group, earlier stages, a resource); **waiting** waits for a person or a timer (an approval, a manual job, a delay).
 
+A GitHub job whose labels ask for a runner vendor's machine names the vendor before its runner, or before the labels while it waits: Depot (`depot-…`), Blacksmith (`blacksmith-…`), WarpBuild (`warp-…`), Namespace (`namespace-profile-…`), Ubicloud (`ubicloud…`) or AWS CodeBuild (`codebuild-…`). In `--json` it is the job's `runner_host`.
+
 On AWS, each GitHub Actions job a runner project takes runs as one CodeBuild build, so `runners` shows each build as a run with one job: the build's project, number and repository, its compute type, image or fleet, and its phase. A build is **queued** until CodeBuild has provisioned it, then **running**; it is never waiting or pending.
 
 ### Terminal status

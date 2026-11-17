@@ -15,6 +15,8 @@ public struct Job: Codable, Sendable, Hashable, Identifiable {
     public let labels: [String]
     /// The runner that picked it up.
     public let runner: String?
+    /// Whose machine its labels ask for, when that's a runner vendor's: Depot, Blacksmith.
+    public let runnerHost: RunnerHost?
     /// The step running right now, where the service reports steps.
     public let currentStep: String?
     public let webURL: URL?
@@ -43,6 +45,7 @@ public struct Job: Codable, Sendable, Hashable, Identifiable {
         self.completedAt = completedAt
         self.labels = labels
         self.runner = runner
+        self.runnerHost = RunnerHost(labels: labels)
         self.currentStep = currentStep
         self.webURL = webURL
     }
@@ -52,6 +55,7 @@ public struct Job: Codable, Sendable, Hashable, Identifiable {
         case createdAt = "created_at"
         case startedAt = "started_at"
         case completedAt = "completed_at"
+        case runnerHost = "runner_host"
         case currentStep = "current_step"
         case webURL = "web_url"
     }
