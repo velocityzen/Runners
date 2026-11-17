@@ -12,7 +12,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.8.2"),
         .package(url: "https://github.com/apple/swift-configuration", from: "1.5.0"),
         .package(url: "https://github.com/apple/swift-system", from: "1.6.0"),
-        .package(url: "https://github.com/velocityzen/fp-swift", from: "4.7.0"),
+        .package(url: "https://github.com/velocityzen/fp-swift", from: "4.8.0"),
         .package(url: "https://github.com/velocityzen/fp-swift-service", from: "0.2.1"),
         .package(url: "https://github.com/velocityzen/ProgramStatus", from: "0.4.1"),
         .package(url: "https://github.com/velocityzen/fp-swift-pipe", from: "2.5.0"),

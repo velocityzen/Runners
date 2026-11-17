@@ -8,17 +8,25 @@ import Testing
 @Suite("Watching")
 struct RunsMonitorWatchTests {
     /// A service that counts its scope lookups and run listings, and fails the ones `failing`
-    /// and `failingRuns` name (1-based).
+    /// and `failingRuns` name (1-based). Each run listing takes `listingTakes`.
     final class CountingService: CIService {
         let provider: any Provider = GitHubProvider()
         let failing: Set<Int>
         let failingRuns: Set<Int>
+        let listingTakes: Duration
         private let lookups = Atomic(0)
         private let listings = Atomic(0)
+        private let spans = Mutex<[Range<ContinuousClock.Instant>]>([])
 
-        init(failing: Set<Int> = [], failingRuns: Set<Int> = []) {
+        init(failing: Set<Int> = [], failingRuns: Set<Int> = [], listingTakes: Duration = .zero) {
             self.failing = failing
             self.failingRuns = failingRuns
+            self.listingTakes = listingTakes
+        }
+
+        /// When each run listing started and ended, in order.
+        var listingSpans: [Range<ContinuousClock.Instant>] {
+            spans.withLock { $0 }
         }
 
         var count: Int {
@@ -42,7 +50,12 @@ struct RunsMonitorWatchTests {
             in repositories: [Repository],
             query: StatusQuery
         ) async -> Result<[ActiveRun], RunnersError> {
+            let start = ContinuousClock.now
             let listing = listings.add(1, ordering: .relaxed).newValue
+            if listingTakes > .zero {
+                try? await Task.sleep(for: listingTakes)
+            }
+            spans.withLock { $0.append(start..<ContinuousClock.now) }
             return failingRuns.contains(listing) ? .failure(.notFound("octo/app")) : .success([])
         }
 
@@ -69,6 +82,17 @@ struct RunsMonitorWatchTests {
         #expect(results.filter(\.isSuccess).count == 3)
         #expect(service.runListings == 3)
         #expect(service.count == 1)
+    }
+
+    @Test("waits the whole interval after a snapshot, however long it took")
+    func slowSnapshot() async throws {
+        let service = CountingService(listingTakes: .milliseconds(50))
+        let monitor = RunsMonitor(service: service)
+        for await _ in monitor.watch(query, every: .milliseconds(50)).prefix(2) {}
+        let spans = service.listingSpans
+        try #require(spans.count == 2)
+        // Counted from the start, the second would begin as the first ended.
+        #expect(spans[0].upperBound.duration(to: spans[1].lowerBound) >= .milliseconds(50))
     }
 
     @Test("reads the repositories again once the rescan time has passed")

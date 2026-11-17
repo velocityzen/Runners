@@ -190,7 +190,7 @@ case .failure(let error):
 }
 ```
 
-To keep watching, read `watch`, an async sequence built on fp-swift's `withRepeat`. It takes a snapshot when you ask for the next one, at most once per `interval`; a failure is an element, not the end, and cancelling your task finishes it. A run that finishes is read once more through `CIService.latest` and stays in later snapshots with its conclusion, until a newer run of the same workflow on the same branch replaces it; `snapshot.activeRuns` and `snapshot.finishedRuns` tell them apart. The repositories are read again every `rescan` (five minutes by default), or after a failure:
+To keep watching, read `watch`, an async sequence built on fp-swift's `withRepeat`. It takes a snapshot when you ask for the next one, waiting `interval` after the one before it finished, however long that took; a failure is an element, not the end, and cancelling your task finishes it. A run that finishes is read once more through `CIService.latest` and stays in later snapshots with its conclusion, until a newer run of the same workflow on the same branch replaces it; `snapshot.activeRuns` and `snapshot.finishedRuns` tell them apart. The repositories are read again every `rescan` (five minutes by default), or after a failure:
 
 ```swift
 for await snapshot in monitor.watch(query, every: .seconds(15)) {

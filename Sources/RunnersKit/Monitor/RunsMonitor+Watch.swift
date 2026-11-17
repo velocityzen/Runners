@@ -3,9 +3,11 @@ import Foundation
 import Synchronization
 
 extension RunsMonitor {
-    /// A snapshot each time the sequence is read, at most once per `interval`.
+    /// A snapshot each time the sequence is read, with at least `interval` between the end of
+    /// one snapshot and the start of the next.
     ///
-    /// The first comes at once. Nothing is fetched until it is asked for, and a failure is an
+    /// The first comes at once. A slow snapshot never shortens the wait after it, so the API
+    /// is not read back to back. Nothing is fetched until it is asked for, and a failure is an
     /// element rather than the end: the next read tries again. The repositories to check are
     /// read again only once `rescan` has passed, or after a failure. A run that finishes is
     /// read once more and stays in the snapshots with how it ended, until a newer run of the
@@ -19,8 +21,13 @@ extension RunsMonitor {
         every interval: Duration,
         rescan: Duration = .seconds(300)
     ) -> some AsyncSequence<Result<StatusSnapshot, RunnersError>, Never> {
-        let state = WatchState(monitor: self, query: query, rescan: rescan)
-        return withRepeat(interval: interval) { await state.next() }
+        let state = WatchState(
+            monitor: self,
+            query: query,
+            rescan: rescan
+        )
+
+        return withRepeat(interval: interval, from: .finish) { await state.next() }
     }
 
     /// What became of each run, read at the same time.
