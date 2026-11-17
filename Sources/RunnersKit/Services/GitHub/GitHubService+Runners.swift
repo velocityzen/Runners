@@ -35,7 +35,7 @@ extension GitHubService {
         let login = organization.login
         return await withAll(
             await api.runners(ofOrganization: login),
-            await .success(Self.hosted(await api.hostedRunners(ofOrganization: login)))
+            .success(Self.hosted(await api.hostedRunners(ofOrganization: login)))
         )
         .map { selfHosted, hosted in
             RunnerListing(
