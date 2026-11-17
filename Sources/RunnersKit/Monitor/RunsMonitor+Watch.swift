@@ -1,5 +1,6 @@
 import FP
 import Foundation
+import Synchronization
 
 extension RunsMonitor {
     /// A snapshot each time the sequence is read, at most once per `interval`.
@@ -10,17 +11,16 @@ extension RunsMonitor {
     /// read once more and stays in the snapshots with how it ended, until a newer run of the
     /// same workflow on the same branch replaces it. The sequence finishes when the reading
     /// task is cancelled.
+    ///
+    /// The sequence keeps one scope and one history, so read it in one loop: a second loop
+    /// over the same sequence would share them. For another loop, call `watch` again.
     public func watch(
         _ query: StatusQuery,
         every interval: Duration,
         rescan: Duration = .seconds(300)
     ) -> some AsyncSequence<Result<StatusSnapshot, RunnersError>, Never> {
-        RunsWatch(
-            ticks: withRepeat(interval: interval) {},
-            monitor: self,
-            query: query,
-            rescan: rescan
-        )
+        let state = WatchState(monitor: self, query: query, rescan: rescan)
+        return withRepeat(interval: interval) { await state.next() }
     }
 
     /// What became of each run, read at the same time.
@@ -36,57 +36,55 @@ extension RunsMonitor {
     }
 }
 
-/// A snapshot per tick that reuses the scope for a while and keeps the runs it saw finish,
-/// through a ``WatchHistory``.
-struct RunsWatch<Ticks: AsyncSequence<Void, Never>>: AsyncSequence {
-    typealias Element = Result<StatusSnapshot, RunnersError>
-    typealias Failure = Never
+/// What a watch keeps between snapshots: the scope, reused for a while, and the runs it saw
+/// finish, through a ``WatchHistory``.
+///
+/// `withRepeat` never starts a call before the last one returns, so nothing changes the state
+/// between a read and the write after it. The lock is there only because the call is
+/// `@Sendable`; it is never held across an `await`.
+final class WatchState: Sendable {
+    struct Kept {
+        var scope: ReadScope?
+        var history = WatchHistory()
+    }
 
-    let ticks: Ticks
     let monitor: RunsMonitor
     let query: StatusQuery
     let rescan: Duration
+    private let kept = Mutex(Kept())
 
-    func makeAsyncIterator() -> Iterator {
-        Iterator(ticks: ticks.makeAsyncIterator(), monitor: monitor, query: query, rescan: rescan)
+    init(monitor: RunsMonitor, query: StatusQuery, rescan: Duration) {
+        self.monitor = monitor
+        self.query = query
+        self.rescan = rescan
     }
 
-    struct Iterator: AsyncIteratorProtocol {
-        var ticks: Ticks.AsyncIterator
-        let monitor: RunsMonitor
-        let query: StatusQuery
-        let rescan: Duration
-        var scope: ReadScope?
-        var history = WatchHistory()
-
-        mutating func next() async -> Element? {
-            await next(isolation: nil)
+    /// A snapshot, with the runs that finished since the last one still on show.
+    func next() async -> Result<StatusSnapshot, RunnersError> {
+        await snapshot().mapAsync { snapshot in
+            let ended = kept.withLock { $0.history.ended(in: snapshot) }
+            let latest = await monitor.latest(of: ended, query: query)
+            return kept.withLock { $0.history.record(snapshot, ended: latest) }
         }
+    }
 
-        mutating func next(isolation actor: isolated (any Actor)?) async -> Element? {
-            guard await ticks.next(isolation: actor) != nil else { return nil }
-            let result = await snapshot()
-            guard case .success(let snapshot) = result else { return result }
-            let ended = await monitor.latest(of: history.ended(in: snapshot), query: query)
-            return .success(history.record(snapshot, ended: ended))
+    /// A snapshot in the kept scope, or in a fresh one. A failure drops the scope, in case a
+    /// repository in it is gone.
+    func snapshot() async -> Result<StatusSnapshot, RunnersError> {
+        let scope = await currentScope(at: monitor.now())
+        let snapshot = await scope.flatMapAsync { read in
+            await monitor.snapshot(query, in: read.scope)
         }
+        kept.withLock { $0.scope = snapshot.isSuccess ? try? scope.get() : nil }
+        return snapshot
+    }
 
-        /// A snapshot in the kept scope, or in a fresh one. A failure drops the scope, in case
-        /// a repository in it is gone.
-        mutating func snapshot() async -> Result<StatusSnapshot, RunnersError> {
-            let scope = await currentScope(at: monitor.now())
-            let snapshot = await scope.flatMapAsync { [monitor, query] read in
-                await monitor.snapshot(query, in: read.scope)
-            }
-            self.scope = snapshot.isSuccess ? try? scope.get() : nil
-            return snapshot
+    func currentScope(at now: Date) async -> Result<ReadScope, RunnersError> {
+        if let scope = kept.withLock({ $0.scope }), scope.isFresh(at: now, within: rescan) {
+            return .success(scope)
         }
-
-        func currentScope(at now: Date) async -> Result<ReadScope, RunnersError> {
-            if let scope, scope.isFresh(at: now, within: rescan) { return .success(scope) }
-            return await monitor.service.scope(for: query)
-                .map { ReadScope(scope: $0, readAt: now) }
-        }
+        return await monitor.service.scope(for: query)
+            .map { ReadScope(scope: $0, readAt: now) }
     }
 }
 
