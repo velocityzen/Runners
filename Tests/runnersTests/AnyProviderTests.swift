@@ -67,8 +67,8 @@ struct AnyProviderTests {
         #expect(
             problem.hasSuffix(
                 "github.token, github.api_url, gitlab.token, gitlab.host, forgejo.token, "
-                    + "forgejo.host, aws.access_key_id, aws.secret_access_key, aws.session_token, "
-                    + "aws.region, forge.token, forge.host"
+                    + "forgejo.host, woodpecker.token, woodpecker.server, aws.access_key_id, "
+                    + "aws.secret_access_key, aws.session_token, aws.region, forge.token, forge.host"
             )
         )
     }

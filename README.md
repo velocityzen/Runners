@@ -1,6 +1,6 @@
 # Runners
 
-See every CI run that is still going — running, queued, waiting for approval, or pending — across all repositories of a user, organization or GitLab group, down to the job, the runner that picked it up, and the step it is on. Works with GitHub Actions, GitLab CI, Forgejo Actions (Codeberg and other Forgejo instances), and the GitHub Actions runners that AWS CodeBuild hosts.
+See every CI run that is still going — running, queued, waiting for approval, or pending — across all repositories of a user, organization or GitLab group, down to the job, the runner that picked it up, and the step it is on. Works with GitHub Actions, GitLab CI, Forgejo Actions and Woodpecker CI (Codeberg's, or your own), and the GitHub Actions runners that AWS CodeBuild hosts.
 
 `RunnersKit` is the library; `runners` is its command-line front-end.
 
@@ -79,6 +79,7 @@ runners my-org --json            # machine-readable snapshot
 runners -p gitlab my-group       # a GitLab group, subgroups included (or a user)
 runners -p gitlab -r my-group/sub/project
 runners -p forgejo my-org        # a Codeberg organization or user
+runners -p woodpecker            # your repositories on ci.codeberg.org
 runners -p aws                   # the CodeBuild runner projects of your AWS region
 runners -p aws -r gh-runner      # a CodeBuild project, runner project or not
 runners my-org --runners         # the organization's runners, busy first
@@ -120,6 +121,7 @@ That is one request per hundred runners (two for a GitHub organization), one per
 - **GitHub:** the first of `GH_TOKEN`, `GITHUB_TOKEN`, or the token of a signed-in [GitHub CLI](https://cli.github.com) (`gh auth token`). Private repositories need the classic `repo` scope, or a fine-grained token with Actions (read). For GitHub Enterprise, pass `--api-url https://ghe.example.com/api/v3` or set `GITHUB_API_URL`.
 - **GitLab:** `GITLAB_TOKEN` (or `GITLAB_ACCESS_TOKEN`), a personal access token with `read_api`. For a self-managed instance set `GITLAB_HOST` (as `glab` does), `CI_API_V4_URL`, or pass `--api-url https://gitlab.example.com/api/v4`.
 - **Forgejo Actions:** `FORGEJO_TOKEN` (or `CODEBERG_TOKEN`), a personal access token with read access to repositories (Forgejo has no organization tokens), sent as `Authorization: token …`. Without one, `runners` reads public repositories only, so it needs an owner or `-r`. The default instance is Codeberg; for another set `FORGEJO_HOST` (a host or a URL) or pass `--api-url https://git.example.com/api/v1`.
+- **Woodpecker CI:** `WOODPECKER_TOKEN`, a Woodpecker personal access token from your user page on the Woodpecker server, not your Codeberg token. Without one, `runners` reads only public repositories named with `-r`. The default server is ci.codeberg.org; for another set `WOODPECKER_SERVER` (as woodpecker-cli does), or pass `--api-url https://ci.example.com/api`.
 - **AWS CodeBuild:** `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, with `AWS_SESSION_TOKEN` for temporary keys; else the credentials of the [AWS CLI](https://aws.amazon.com/cli/) v2's current profile (`aws configure export-credentials`), so `AWS_PROFILE`, `aws sso login` and roles work as they do for the CLI. The region is `AWS_REGION`, else `AWS_DEFAULT_REGION`, else `aws configure get region`. Credentials from the CLI that expire, such as SSO's or a role's, are fetched from it again five minutes before they do, so a `--watch` outlives them. If the CLI can't give new ones, say because the SSO session has ended, the watch shows why, then picks up new ones once `aws sso login` succeeds. Keys set in the environment or `.runners` are used as they are. The keys need these actions:
 
   ```json
@@ -214,6 +216,14 @@ On **Forgejo Actions**, `runners`:
 3. reads each run's jobs (`/actions/runs/{id}/jobs`), and each running job once more (`/actions/jobs/{id}`), since only that has its steps: when it started and the step it is on.
 
 That is one request per repository plus one per run and one per running job, and in `--watch` mode two more for each run when it finishes. A run from a fork that someone has to approve is **waiting**; a run or job held back by the jobs it needs is **pending**; a job is **queued** until a runner takes it, showing the labels it asks for. Forgejo says nothing about which runner has a job. Its `…/actions/runners/jobs` would find the repositories with active jobs in one call, but it lists only jobs waiting for a runner or running, so it would miss runs that wait for approval, and it needs an admin's token.
+
+On **Woodpecker CI**, `runners`:
+
+1. lists your repositories on the server (`/user/repos`), keeping an owner's when one is given, and the active ones that have run a pipeline. `-r` looks each repository up instead (`/repos/lookup/{owner}/{name}`);
+2. asks each repository for its pipelines in each status (`/repos/{id}/pipelines?status=…`), one request per status, since the filter takes one;
+3. reads each of those pipelines (`/repos/{id}/pipelines/{number}`) for its workflows, which show as its jobs, with the agent each is on and the step it's on.
+
+That is four requests per repository with pipelines and one per unfinished pipeline, and in `--watch` mode one more for each pipeline when it finishes. **pending** pipelines wait for an agent, so they show as queued; **blocked** ones wait for approval; **created** ones are pending. The server's queue and agents are left out: on a shared server such as Codeberg's they are for admins only.
 
 On **AWS CodeBuild**, `runners`:
 
