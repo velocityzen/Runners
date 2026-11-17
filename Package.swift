@@ -16,6 +16,7 @@ let package = Package(
         .package(url: "https://github.com/velocityzen/fp-swift-service", from: "0.2.1"),
         .package(url: "https://github.com/velocityzen/ProgramStatus", from: "0.4.1"),
         .package(url: "https://github.com/velocityzen/fp-swift-pipe", from: "2.5.0"),
+        .package(url: "https://github.com/swiftlang/swift-subprocess", from: "1.0.2"),
     ],
     targets: [
         .target(
@@ -24,6 +25,7 @@ let package = Package(
                 .product(name: "FP", package: "fp-swift"),
                 .product(name: "FPRetry", package: "fp-swift"),
                 .product(name: "FPPipe", package: "fp-swift-pipe"),
+                .product(name: "Subprocess", package: "swift-subprocess"),
             ],
             swiftSettings: callerIsolation
         ),

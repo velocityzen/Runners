@@ -215,7 +215,7 @@ To add a service, add `Services/<Service>/` with a type conforming to `CIService
 - `id`, `name` and `repositoryTerm`: what the command line, config and reports call it;
 - `tokenSettings` and `apiURLSettings`: the settings it reads, most preferred first. `.setting("forge.token")` is `forge.token` in `.runners` and `FORGE_TOKEN` in the environment; `.environment("ci.token")` is another tool's variable, read from the environment only;
 - `defaultAPIURL`, and `apiURL(_:from:)` when a setting holds something other than a URL, such as a host;
-- `fallbackToken(apiURL:)`, for when no token is set;
+- `fallbackToken(apiURL:)`, for when no token is set. To borrow the token of a signed-in CLI, return `CLIToken("forge", ["auth", "token"], hint: "set FORGE_TOKEN").token()`, as GitHub does with `gh auth token`; a failure says why the CLI gave no token, then the hint;
 - `service(token:apiURL:transport:)`, which builds its `CIService`.
 
 ## Develop
