@@ -66,8 +66,9 @@ struct AnyProviderTests {
         #expect(problem.contains("unknown setting \"forge.ci_token\""))
         #expect(
             problem.hasSuffix(
-                "github.token, github.api_url, gitlab.token, gitlab.host, aws.access_key_id, "
-                    + "aws.secret_access_key, aws.session_token, aws.region, forge.token, forge.host"
+                "github.token, github.api_url, gitlab.token, gitlab.host, forgejo.token, "
+                    + "forgejo.host, aws.access_key_id, aws.secret_access_key, aws.session_token, "
+                    + "aws.region, forge.token, forge.host"
             )
         )
     }
