@@ -68,9 +68,9 @@ struct AnyProviderTests {
             problem.hasSuffix(
                 "github.token, github.api_url, gitlab.token, gitlab.host, forgejo.token, "
                     + "forgejo.host, woodpecker.token, woodpecker.server, depot.token, "
-                    + "depot.api_url, namespace.token, namespace.api_url, aws.access_key_id, "
-                    + "aws.secret_access_key, aws.session_token, aws.region, forge.token, "
-                    + "forge.host"
+                    + "depot.api_url, namespace.token, namespace.api_url, warpbuild.api_key, "
+                    + "warpbuild.api_url, aws.access_key_id, aws.secret_access_key, "
+                    + "aws.session_token, aws.region, forge.token, forge.host"
             )
         )
     }

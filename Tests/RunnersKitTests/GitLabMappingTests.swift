@@ -146,7 +146,7 @@ struct BuiltInProviderTests {
         #expect(
             Providers.builtIn.map(\.id) == [
                 "github", "gitlab", "forgejo", "woodpecker", "depot-ci", "depot", "namespace",
-                "aws",
+                "warpbuild", "aws",
             ]
         )
         for provider in Providers.builtIn where provider.id != "aws" {
