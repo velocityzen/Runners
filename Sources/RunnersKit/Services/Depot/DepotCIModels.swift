@@ -6,7 +6,7 @@ import Foundation
 // strings.
 
 /// `ListRuns`: by default it gives running and queued runs; `repo` is an exact `owner/name`.
-struct DepotListRuns: Encodable, Sendable {
+struct DepotListRuns: ConnectPagedRequest {
     var status: [String]
     var pageSize: Int
     var pageToken: String?
@@ -19,10 +19,18 @@ struct DepotListRuns: Encodable, Sendable {
     }
 }
 
-struct DepotRunsPage: Decodable, Sendable {
+struct DepotRunsPage: ConnectPage {
     let runs: [DepotRun]?
     /// Empty on the last page.
     let nextPageToken: String?
+
+    var items: [DepotRun] {
+        runs ?? []
+    }
+
+    var nextPage: String? {
+        nextPageToken
+    }
 }
 
 /// A run from `ListRuns`: what started it and on which commit, but not its workflows.
@@ -92,12 +100,7 @@ struct DepotJob: Decodable, Sendable {
 
         /// `4 CPUs, 16 GB`
         var machine: String? {
-            let parts = [
-                cpus.map { $0 == 1 ? "1 CPU" : "\($0) CPUs" },
-                memoryGb.map { "\($0) GB" },
-            ]
-            .compact()
-            return parts.isEmpty ? nil : parts.joined(separator: ", ")
+            DepotMachine.describe(cpus: cpus, memoryGB: memoryGb)
         }
     }
 
@@ -296,6 +299,19 @@ struct DepotWorkflowRun: Sendable {
             startedAt: startedAt,
             completedAt: finishedAt
         )
+    }
+}
+
+/// The machine a job asks Depot for.
+enum DepotMachine {
+    /// `4 CPUs, 16 GB`; nil when it names neither. A zero is a size not asked for.
+    static func describe(cpus: Int?, memoryGB: Int?) -> String? {
+        let parts = [
+            cpus.flatMap { $0 > 0 ? $0 : nil }.map { $0 == 1 ? "1 CPU" : "\($0) CPUs" },
+            memoryGB.flatMap { $0 > 0 ? $0 : nil }.map { "\($0) GB" },
+        ]
+        .compact()
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
     }
 }
 

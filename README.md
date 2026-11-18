@@ -1,6 +1,6 @@
 # Runners
 
-See every CI run that is still going — running, queued, waiting for approval, or pending — across all repositories of a user, organization or GitLab group, down to the job, the runner that picked it up, and the step it is on. Works with GitHub Actions, GitLab CI, Forgejo Actions, Woodpecker CI (Codeberg's, or your own) and Depot CI, and the GitHub Actions runners that AWS CodeBuild hosts.
+See every CI run that is still going — running, queued, waiting for approval, or pending — across all repositories of a user, organization or GitLab group, down to the job, the runner that picked it up, and the step it is on. Works with GitHub Actions, GitLab CI, Forgejo Actions, Woodpecker CI (Codeberg's, or your own) and Depot CI, and the GitHub Actions runners that Depot and AWS CodeBuild host.
 
 `RunnersKit` is the library; `runners` is its command-line front-end.
 
@@ -81,6 +81,7 @@ runners -p gitlab -r my-group/sub/project
 runners -p forgejo my-org        # a Codeberg organization or user
 runners -p woodpecker            # your repositories on ci.codeberg.org
 runners -p depot-ci              # your Depot organization's Depot CI runs
+runners -p depot                 # its GitHub Actions jobs on Depot's runners
 runners -p aws                   # the CodeBuild runner projects of your AWS region
 runners -p aws -r gh-runner      # a CodeBuild project, runner project or not
 runners my-org --runners         # the organization's runners, busy first
@@ -98,6 +99,8 @@ A GitHub job whose labels ask for a runner vendor's machine names the vendor bef
 On AWS, each GitHub Actions job a runner project takes runs as one CodeBuild build, so `runners` shows each build as a run with one job: the build's project, number and repository, its compute type, image or fleet, and its phase. A build is **queued** until CodeBuild has provisioned it, then **running**; it is never waiting or pending.
 
 On Depot CI, each workflow of a run shows as a run of its own, as a GitHub workflow run does: a push that starts a build and a lint workflow is two runs, each linking to its page on depot.dev. A job held by a concurrency group is **pending**; a running job shows the CPUs and memory it asked for.
+
+With `-p depot`, a GitHub workflow run shows with the jobs of it that Depot runs, as Depot reports them: each job's runner label, the CPUs and memory it asked for, how long it waited in Depot's queue, and its page on GitHub. Its jobs on GitHub's own runners are left out, so a run reads as finished once its Depot jobs are; `-p github` shows the whole run. A job re-run shows its newest attempt.
 
 ### Runners
 
@@ -125,7 +128,7 @@ That is one request per hundred runners (two for a GitHub organization), one per
 - **GitLab:** `GITLAB_TOKEN` (or `GITLAB_ACCESS_TOKEN`), a personal access token with `read_api`. For a self-managed instance set `GITLAB_HOST` (as `glab` does), `CI_API_V4_URL`, or pass `--api-url https://gitlab.example.com/api/v4`.
 - **Forgejo Actions:** `FORGEJO_TOKEN` (or `CODEBERG_TOKEN`), a personal access token with read access to repositories (Forgejo has no organization tokens), sent as `Authorization: token …`. Without one, `runners` reads public repositories only, so it needs an owner or `-r`. The default instance is Codeberg; for another set `FORGEJO_HOST` (a host or a URL) or pass `--api-url https://git.example.com/api/v1`.
 - **Woodpecker CI:** `WOODPECKER_TOKEN`, a Woodpecker personal access token from your user page on the Woodpecker server, not your Codeberg token. Without one, `runners` reads only public repositories named with `-r`. The default server is ci.codeberg.org; for another set `WOODPECKER_SERVER` (as woodpecker-cli does), or pass `--api-url https://ci.example.com/api`.
-- **Depot CI:** `DEPOT_TOKEN`, an organization API token from Settings → API Tokens in the Depot dashboard; it covers that organization's runs. For another API endpoint set `DEPOT_API_URL` (as the depot CLI does).
+- **Depot CI and Depot's runners:** `DEPOT_TOKEN`, an organization API token from Settings → API Tokens in the Depot dashboard; it covers that organization's runs and jobs. For another API endpoint set `DEPOT_API_URL` (as the depot CLI does).
 - **AWS CodeBuild:** `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, with `AWS_SESSION_TOKEN` for temporary keys; else the credentials of the [AWS CLI](https://aws.amazon.com/cli/) v2's current profile (`aws configure export-credentials`), so `AWS_PROFILE`, `aws sso login` and roles work as they do for the CLI. The region is `AWS_REGION`, else `AWS_DEFAULT_REGION`, else `aws configure get region`. Credentials from the CLI that expire, such as SSO's or a role's, are fetched from it again five minutes before they do, so a `--watch` outlives them. If the CLI can't give new ones, say because the SSO session has ended, the watch shows why, then picks up new ones once `aws sso login` succeeds. Keys set in the environment or `.runners` are used as they are. The keys need these actions:
 
   ```json
@@ -236,6 +239,14 @@ On **Depot CI**, `runners` calls Depot's Connect API, a JSON `POST` per call:
 3. reads each run's workflows and their jobs (`GetRunStatus`), keeping the unfinished workflows, and reads each unfinished job (`GetJob`) for its times and the machine it asks for.
 
 That is one request for the latest runs (`--watch` makes it every five minutes) and one for the active ones, or one per repository named with `-r`, plus one per active run and one per unfinished job; in `--watch` mode, one more for each workflow when it finishes (`GetWorkflow`). Depot reports no quota, and nothing is cached: a `POST` has no `ETag`.
+
+On **Depot's runners** (`-p depot`), `runners` calls the same API:
+
+1. lists the GitHub accounts the Depot GitHub App is installed on (`ListGithubActionsConnections`), keeping the owner's when one is given, and the repositories each installation can see (`ListGithubActionsRepositories`, 250 at a time). `-r` takes repositories as they are;
+2. lists the queued, waiting and running jobs on Depot's runners, newest first, paging by token, 250 at a time (`ListGithubActionsJobs`), for the given owner's or `-r`'s repositories when there are any, and groups them by workflow run;
+3. lists each of those runs' jobs once more (`ListGithubActionsJobs` with the run's ID), finished ones too, so a run shows all its Depot jobs.
+
+That is one request for the installations and one per installation for its repositories (`--watch` makes them every five minutes), one for the active jobs, plus one per active run; `--no-jobs` skips those. In `--watch` mode, a run that finishes is listed once more. Nothing is cached.
 
 On **AWS CodeBuild**, `runners`:
 

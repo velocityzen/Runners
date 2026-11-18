@@ -21,12 +21,12 @@ public struct DepotCIService: CIService {
         retryPolicy: RetryPolicy = APIClient.defaultRetryPolicy
     ) {
         api = DepotAPI(
-            client: APIClient(
+            connect: ConnectClient(
                 baseURL: baseURL,
-                headers: DepotAPI.headers(token: token),
+                token: token,
+                tokenHelp: DepotAPI.tokenHelp,
                 transport: transport,
-                retryPolicy: retryPolicy,
-                classify: DepotAPI.classify
+                retryPolicy: retryPolicy
             )
         )
     }

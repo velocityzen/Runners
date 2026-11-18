@@ -33,3 +33,16 @@ struct DepotSettingsTests {
         #expect(reason.contains("organization API token"))
     }
 }
+
+@Suite("Depot settings")
+struct DepotRunnersSettingsTests {
+    @Test("shares DEPOT_TOKEN and DEPOT_API_URL with Depot CI")
+    func environment() async throws {
+        let fixture = try ConfigFixture()
+        fixture.environment = ["RUNNERS_PROVIDER": "depot", "DEPOT_TOKEN": "org-token"]
+        let settings = try await fixture.settings().get()
+        #expect(settings.provider.name == "Depot")
+        #expect(settings.token == "org-token")
+        #expect(try await settings.resolvedAPIURL().get().absoluteString == "https://api.depot.dev")
+    }
+}
