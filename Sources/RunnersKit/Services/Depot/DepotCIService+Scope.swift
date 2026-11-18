@@ -20,7 +20,12 @@ extension DepotCIService {
                     }
 
             case .repositories(let names):
-                .success(MonitorScope(owner: nil, repositories: names.map(Repository.init(depot:))))
+                .success(
+                    MonitorScope(
+                        owner: nil,
+                        repositories: names.map { Repository(gitHubFullName: $0) }
+                    )
+                )
         }
     }
 
@@ -29,7 +34,7 @@ extension DepotCIService {
         runs.compactMap(\.repo)
             .filter { !$0.isEmpty }
             .uniqued { $0.lowercased() }
-            .map(Repository.init(depot:))
+            .map { Repository(gitHubFullName: $0) }
     }
 
     static func owner(of fullName: String) -> String {

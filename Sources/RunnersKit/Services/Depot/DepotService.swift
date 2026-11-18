@@ -62,7 +62,12 @@ extension DepotService {
                     }
 
             case .repositories(let names):
-                .success(MonitorScope(owner: nil, repositories: names.map(Repository.init(depot:))))
+                .success(
+                    MonitorScope(
+                        owner: nil,
+                        repositories: names.map { Repository(gitHubFullName: $0) }
+                    )
+                )
         }
     }
 

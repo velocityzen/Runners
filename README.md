@@ -1,6 +1,6 @@
 # Runners
 
-See every CI run that is still going — running, queued, waiting for approval, or pending — across all repositories of a user, organization or GitLab group, down to the job, the runner that picked it up, and the step it is on. Works with GitHub Actions, GitLab CI, Forgejo Actions, Woodpecker CI (Codeberg's, or your own) and Depot CI, and the GitHub Actions runners that Depot and AWS CodeBuild host.
+See every CI run that is still going — running, queued, waiting for approval, or pending — across all repositories of a user, organization or GitLab group, down to the job, the runner that picked it up, and the step it is on. Works with GitHub Actions, GitLab CI, Forgejo Actions, Woodpecker CI (Codeberg's, or your own) and Depot CI, and the GitHub Actions runners that Depot, Namespace and AWS CodeBuild host.
 
 `RunnersKit` is the library; `runners` is its command-line front-end.
 
@@ -82,6 +82,7 @@ runners -p forgejo my-org        # a Codeberg organization or user
 runners -p woodpecker            # your repositories on ci.codeberg.org
 runners -p depot-ci              # your Depot organization's Depot CI runs
 runners -p depot                 # its GitHub Actions jobs on Depot's runners
+runners -p namespace             # GitHub Actions jobs on your Namespace workspace's runners
 runners -p aws                   # the CodeBuild runner projects of your AWS region
 runners -p aws -r gh-runner      # a CodeBuild project, runner project or not
 runners my-org --runners         # the organization's runners, busy first
@@ -101,6 +102,8 @@ On AWS, each GitHub Actions job a runner project takes runs as one CodeBuild bui
 On Depot CI, each workflow of a run shows as a run of its own, as a GitHub workflow run does: a push that starts a build and a lint workflow is two runs, each linking to its page on depot.dev. A job held by a concurrency group is **pending**; a running job shows the CPUs and memory it asked for.
 
 With `-p depot`, a GitHub workflow run shows with the jobs of it that Depot runs, as Depot reports them: each job's runner label, the CPUs and memory it asked for, how long it waited in Depot's queue, and its page on GitHub. Its jobs on GitHub's own runners are left out, so a run reads as finished once its Depot jobs are; `-p github` shows the whole run. A job re-run shows its newest attempt.
+
+With `-p namespace`, a GitHub workflow run shows with its unfinished jobs on Namespace's runners: each job's runner profile (`namespace-profile-<tag>`), runner and instance, the machine its profile gives (`4 CPUs, 8 GB, linux arm64`), and how long it waited for a runner. Namespace reports no status for a job, so one is **queued** until it starts, then **running**.
 
 ### Runners
 
@@ -129,6 +132,7 @@ That is one request per hundred runners (two for a GitHub organization), one per
 - **Forgejo Actions:** `FORGEJO_TOKEN` (or `CODEBERG_TOKEN`), a personal access token with read access to repositories (Forgejo has no organization tokens), sent as `Authorization: token …`. Without one, `runners` reads public repositories only, so it needs an owner or `-r`. The default instance is Codeberg; for another set `FORGEJO_HOST` (a host or a URL) or pass `--api-url https://git.example.com/api/v1`.
 - **Woodpecker CI:** `WOODPECKER_TOKEN`, a Woodpecker personal access token from your user page on the Woodpecker server, not your Codeberg token. Without one, `runners` reads only public repositories named with `-r`. The default server is ci.codeberg.org; for another set `WOODPECKER_SERVER` (as woodpecker-cli does), or pass `--api-url https://ci.example.com/api`.
 - **Depot CI and Depot's runners:** `DEPOT_TOKEN`, an organization API token from Settings → API Tokens in the Depot dashboard; it covers that organization's runs and jobs. For another API endpoint set `DEPOT_API_URL` (as the depot CLI does).
+- **Namespace:** `NAMESPACE_TOKEN` or `NSC_TOKEN`, a tenant token. For a long `--watch`, make a revokable one that can read jobs and profiles: `nsc token create --name runners --expires_in 365d --grant '{"resource_type":"github/runner-profile","resource_id":"*","actions":["list","get"]}' --grant '{"resource_type":"instance","resource_id":"*","actions":["list","get"]}' --output token`. Without one, `runners` asks a signed-in [nsc](https://namespace.so/docs/reference/cli/installation) for a development token (`nsc auth generate-dev-token`), which is short-lived. The GitHub runner services are on `https://global.namespaceapis.com`; for another endpoint set `NSC_GLOBAL_ENDPOINT` (as nsc does) or `NAMESPACE_API_URL`.
 - **AWS CodeBuild:** `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, with `AWS_SESSION_TOKEN` for temporary keys; else the credentials of the [AWS CLI](https://aws.amazon.com/cli/) v2's current profile (`aws configure export-credentials`), so `AWS_PROFILE`, `aws sso login` and roles work as they do for the CLI. The region is `AWS_REGION`, else `AWS_DEFAULT_REGION`, else `aws configure get region`. Credentials from the CLI that expire, such as SSO's or a role's, are fetched from it again five minutes before they do, so a `--watch` outlives them. If the CLI can't give new ones, say because the SSO session has ended, the watch shows why, then picks up new ones once `aws sso login` succeeds. Keys set in the environment or `.runners` are used as they are. The keys need these actions:
 
   ```json
@@ -247,6 +251,14 @@ On **Depot's runners** (`-p depot`), `runners` calls the same API:
 3. lists each of those runs' jobs once more (`ListGithubActionsJobs` with the run's ID), finished ones too, so a run shows all its Depot jobs.
 
 That is one request for the installations and one per installation for its repositories (`--watch` makes them every five minutes), one for the active jobs, plus one per active run; `--no-jobs` skips those. In `--watch` mode, a run that finishes is listed once more. Nothing is cached.
+
+On **Namespace**, `runners` calls Namespace's Connect API the same way:
+
+1. lists the workspace's latest hundred jobs, finished or not (`JobsService/ListJobs`), for the repositories they were for, keeping an owner's when one is given. Namespace has no list of repositories, so one whose jobs are all older shows once it runs again. `-r` takes repositories as they are;
+2. lists the unfinished jobs, a hundred at a time, paging by cursor (`ListJobs` with `hasNotFinished`), for the given owner's or `-r`'s repositories when there are any, and groups them by workflow run;
+3. reads the runner profiles once (`ProfileService/ListProfiles`) for their machines, and each running job the listing gave no runner (`DescribeJob`).
+
+That is one request for the latest jobs (`--watch` makes it every five minutes), one per hundred unfinished jobs, and with jobs one for the profiles plus one per running job without a runner; `--no-jobs` skips those. In `--watch` mode, a run that finishes is read once more, from its repository's jobs since it began. Nothing is cached.
 
 On **AWS CodeBuild**, `runners`:
 

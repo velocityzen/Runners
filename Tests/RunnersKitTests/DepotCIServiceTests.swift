@@ -376,7 +376,7 @@ struct DepotCIServiceTests {
             createdAt: Fixtures.now
         )
         let latest = try await service.latest(
-            ActiveRun(repository: Repository(depot: "acme/app"), run: running.run),
+            ActiveRun(repository: Repository(gitHubFullName: "acme/app"), run: running.run),
             query: StatusQuery()
         )
         .get()

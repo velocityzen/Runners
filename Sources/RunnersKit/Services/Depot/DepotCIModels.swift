@@ -100,7 +100,7 @@ struct DepotJob: Decodable, Sendable {
 
         /// `4 CPUs, 16 GB`
         var machine: String? {
-            DepotMachine.describe(cpus: cpus, memoryGB: memoryGb)
+            MachineSize.describe(cpus: cpus, memoryGB: memoryGb.map(Double.init))
         }
     }
 
@@ -122,9 +122,9 @@ struct DepotJob: Decodable, Sendable {
             name: Self.name(jobDisplayName, jobKey, jobId),
             status: RunStatus(depotJob: jobStatus),
             conclusion: Conclusion(depot: jobConclusion) ?? Conclusion(depotStatus: jobStatus),
-            createdAt: DepotTime.date(jobCreatedAt),
-            startedAt: DepotTime.date(jobStartedAt),
-            completedAt: DepotTime.date(jobFinishedAt),
+            createdAt: ProtoTime.date(jobCreatedAt),
+            startedAt: ProtoTime.date(jobStartedAt),
+            completedAt: ProtoTime.date(jobFinishedAt),
             labels: labels.isEmpty ? [runsOn?.image].compact() : labels,
             runner: runsOn?.machine,
             webURL: webURL
@@ -181,9 +181,9 @@ struct DepotWorkflow: Decodable, Sendable {
             trigger: trigger,
             ref: ref,
             commit: [headSha, sha].compact().first { !$0.isEmpty },
-            createdAt: DepotTime.date(workflowCreatedAt) ?? DepotTime.date(runCreatedAt),
-            startedAt: DepotTime.date(workflowStartedAt),
-            finishedAt: DepotTime.date(workflowFinishedAt)
+            createdAt: ProtoTime.date(workflowCreatedAt) ?? ProtoTime.date(runCreatedAt),
+            startedAt: ProtoTime.date(workflowStartedAt),
+            finishedAt: ProtoTime.date(workflowFinishedAt)
         )
     }
 }
@@ -203,8 +203,8 @@ struct DepotWorkflowJob: Decodable, Sendable {
             name: DepotJob.name(jobDisplayName, jobKey, jobId),
             status: RunStatus(depotJob: status),
             conclusion: Conclusion(depotStatus: status),
-            startedAt: DepotTime.date(startedAt),
-            completedAt: DepotTime.date(finishedAt),
+            startedAt: ProtoTime.date(startedAt),
+            completedAt: ProtoTime.date(finishedAt),
             webURL: webURL
         )
     }
@@ -261,7 +261,7 @@ struct DepotWorkflowRun: Sendable {
             trigger: run.trigger,
             ref: run.ref,
             commit: [run.headSha, run.sha].compact().first { !$0.isEmpty },
-            createdAt: DepotTime.date(run.createdAt)
+            createdAt: ProtoTime.date(run.createdAt)
         )
     }
 
@@ -298,41 +298,6 @@ struct DepotWorkflowRun: Sendable {
             createdAt: createdAt ?? startedAt ?? .distantPast,
             startedAt: startedAt,
             completedAt: finishedAt
-        )
-    }
-}
-
-/// The machine a job asks Depot for.
-enum DepotMachine {
-    /// `4 CPUs, 16 GB`; nil when it names neither. A zero is a size not asked for.
-    static func describe(cpus: Int?, memoryGB: Int?) -> String? {
-        let parts = [
-            cpus.flatMap { $0 > 0 ? $0 : nil }.map { $0 == 1 ? "1 CPU" : "\($0) CPUs" },
-            memoryGB.flatMap { $0 > 0 ? $0 : nil }.map { "\($0) GB" },
-        ]
-        .compact()
-        return parts.isEmpty ? nil : parts.joined(separator: ", ")
-    }
-}
-
-/// Depot's times: RFC 3339, with or without fractions of a second; empty or absent while
-/// what they mark hasn't happened.
-enum DepotTime {
-    static func date(_ raw: String?) -> Date? {
-        guard let raw, !raw.isEmpty else { return nil }
-        return JSONCoding.parseDate(raw)
-    }
-}
-
-extension Repository {
-    /// A GitHub repository Depot CI runs for, by its `owner/name`.
-    init(depot fullName: String) {
-        self.init(
-            id: fullName,
-            name: String(fullName.split(separator: "/").last ?? Substring(fullName)),
-            fullName: fullName,
-            webURL: URL(string: "https://github.com/\(fullName)")
-                ?? URL(string: "https://github.com") ?? URL(filePath: "/")
         )
     }
 }

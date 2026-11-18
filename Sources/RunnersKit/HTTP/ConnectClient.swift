@@ -11,12 +11,15 @@ import Foundation
 struct ConnectClient: Sendable {
     let client: APIClient
 
-    /// - Parameter tokenHelp: Which token the service takes and where to get one, added to the
-    ///   message of a call the service answers `unauthenticated`.
+    /// - Parameters:
+    ///   - tokenHelp: Which token the service takes and where to get one, added to the message
+    ///     of a call that rejects the token.
+    ///   - rejectsToken: Whether an error rejects the token: by default, `unauthenticated`.
     init(
         baseURL: URL,
         token: String,
         tokenHelp: String,
+        rejectsToken: @escaping @Sendable (ConnectError) -> Bool = { $0.code == "unauthenticated" },
         transport: any HTTPTransport,
         retryPolicy: RetryPolicy
     ) {
@@ -25,7 +28,7 @@ struct ConnectClient: Sendable {
             headers: Self.headers(token: token),
             transport: transport,
             retryPolicy: retryPolicy,
-            classify: Self.classify(tokenHelp: tokenHelp)
+            classify: Self.classify(tokenHelp: tokenHelp, rejectsToken: rejectsToken)
         )
     }
 
@@ -71,14 +74,17 @@ struct ConnectClient: Sendable {
 
     /// Connect names the error in the body, `{"code": "not_found", "message": …}`, and maps it
     /// onto an HTTP status, which the shared rules read for the rest.
-    static func classify(tokenHelp: String) -> @Sendable (HTTPResponse, URL) -> RunnersError {
+    static func classify(
+        tokenHelp: String,
+        rejectsToken: @escaping @Sendable (ConnectError) -> Bool
+    ) -> @Sendable (HTTPResponse, URL) -> RunnersError {
         { response, url in
             let body = JSONCoding.decode(ConnectError.self, from: response.body).getOrElse { _ in
                 ConnectError()
             }
             let message = body.message ?? body.code ?? "HTTP \(response.status)"
+            if rejectsToken(body) { return .unauthorized("\(message); \(tokenHelp)") }
             switch body.code ?? "" {
-                case "unauthenticated": return .unauthorized("\(message); \(tokenHelp)")
                 case "permission_denied": return .forbidden(message)
                 case "not_found": return .notFound(message)
                 default: return RunnersError(response: response, url: url)
@@ -88,7 +94,7 @@ struct ConnectClient: Sendable {
 }
 
 /// The error a Connect call answers with.
-struct ConnectError: Decodable {
+struct ConnectError: Decodable, Sendable {
     var code: String?
     var message: String?
 }
@@ -135,5 +141,19 @@ struct ProtoInt64: Codable, Sendable, Hashable {
     func encode(to encoder: any Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(String(value))
+    }
+}
+
+/// A proto3 timestamp: RFC 3339, with or without fractions of a second, down to nanoseconds;
+/// empty or absent while what it marks hasn't happened.
+enum ProtoTime {
+    static func date(_ raw: String?) -> Date? {
+        guard let raw, !raw.isEmpty else { return nil }
+        return JSONCoding.parseDate(raw)
+    }
+
+    /// `2027-01-15T08:00:00Z`
+    static func string(_ date: Date) -> String {
+        date.formatted(Date.ISO8601FormatStyle())
     }
 }

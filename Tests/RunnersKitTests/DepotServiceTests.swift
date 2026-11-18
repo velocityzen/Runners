@@ -151,17 +151,19 @@ struct DepotServiceTests {
             Self.decode(done),
             Self.decode(DepotGitHubFixtures.job("2", status: "QUEUED", started: nil)),
         ]
-        #expect(DepotGitHubRun(id: "100", repository: "acme/app", jobs: jobs).status == .queued)
+        #expect(DepotGitHubRun(id: "100", repository: "acme/app", jobs: jobs).run.status == .queued)
         let running = try jobs + [Self.decode(DepotGitHubFixtures.job("3"))]
-        #expect(DepotGitHubRun(id: "100", repository: "acme/app", jobs: running).status == .running)
+        #expect(
+            DepotGitHubRun(id: "100", repository: "acme/app", jobs: running).run.status == .running
+        )
 
         let finished = try [
             Self.decode(DepotGitHubFixtures.job("1", status: "FINISHED", conclusion: "SUCCESS")),
             Self.decode(DepotGitHubFixtures.job("2", status: "FINISHED", conclusion: "SKIPPED")),
         ]
         let passed = DepotGitHubRun(id: "100", repository: "acme/app", jobs: finished)
-        #expect(passed.status == .completed)
-        #expect(passed.conclusion == .success)
+        #expect(passed.run.status == .completed)
+        #expect(passed.run.conclusion == .success)
         let failed = try DepotGitHubRun(
             id: "100",
             repository: "acme/app",
@@ -174,7 +176,7 @@ struct DepotServiceTests {
                 ),
             ]
         )
-        #expect(failed.conclusion == .failure)
+        #expect(failed.run.conclusion == .failure)
 
         // A re-run gives the job a new ID; the newest attempt is the one that counts.
         let rerun = try DepotGitHubRun(
@@ -202,7 +204,7 @@ struct DepotServiceTests {
             ]
         )
         #expect(rerun.jobs.map(\.jobId) == ["7"])
-        #expect(rerun.conclusion == .success)
+        #expect(rerun.run.conclusion == .success)
     }
 
     @Test("shows the unfinished runs of the connected repositories, with all their Depot jobs")
@@ -433,7 +435,7 @@ struct DepotServiceTests {
             repository: "acme/app",
             jobs: [Self.decode(DepotGitHubFixtures.job("1"))]
         )
-        let repository = Repository(depot: "acme/app")
+        let repository = Repository(gitHubFullName: "acme/app")
         let latest = try await service.latest(
             running.activeRun(in: repository, includeJobs: true),
             query: StatusQuery()

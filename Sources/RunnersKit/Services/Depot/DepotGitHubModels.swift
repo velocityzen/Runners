@@ -79,7 +79,7 @@ struct DepotGitHubJob: Decodable, Sendable, Hashable {
     }
 
     var created: Date? {
-        DepotTime.date(createdAt)
+        ProtoTime.date(createdAt)
     }
 
     /// The machine it asked for, and how long it waited for one: `depot-ubuntu-24.04-4,
@@ -88,7 +88,10 @@ struct DepotGitHubJob: Decodable, Sendable, Hashable {
         let queued = (queueSeconds?.value ?? 0) > 0
         let parts = [
             runnerLabel.flatMap { $0.isEmpty ? nil : $0 },
-            DepotMachine.describe(cpus: requestedCpuCount, memoryGB: requestedMemoryGib),
+            MachineSize.describe(
+                cpus: requestedCpuCount,
+                memoryGB: requestedMemoryGib.map(Double.init)
+            ),
             queued
                 ? queueSeconds.map { "\(Elapsed.format(TimeInterval($0.value))) in queue" } : nil,
         ]
@@ -104,8 +107,8 @@ struct DepotGitHubJob: Decodable, Sendable, Hashable {
             status: status,
             conclusion: status == .completed ? Conclusion(depotGitHub: conclusion) : nil,
             createdAt: created,
-            startedAt: DepotTime.date(startedAt),
-            completedAt: DepotTime.date(finishedAt),
+            startedAt: ProtoTime.date(startedAt),
+            completedAt: ProtoTime.date(finishedAt),
             labels: [runnerLabel].compact().filter { !$0.isEmpty },
             runner: runner,
             webURL: githubUrl.flatMap(URL.init(string:))
@@ -125,48 +128,23 @@ struct DepotGitHubRun: Sendable {
     init(id: String, repository: String, jobs: [DepotGitHubJob]) {
         self.id = id
         self.repository = repository
-        let oldestFirst = jobs.enumerated()
-            .sorted { lhs, rhs in
-                let (left, right) = (lhs.element.created, rhs.element.created)
-                return left == right
-                    ? lhs.offset < rhs.offset : (left ?? .distantPast) < (right ?? .distantPast)
-            }
-            .map(\.element)
-        self.jobs = Array(oldestFirst.reversed()).uniqued { $0.name ?? $0.jobId }.reversed()
+        self.jobs = jobs.newestAttempts(name: { $0.name ?? $0.jobId }, created: \.created)
     }
 
     /// The runs these jobs belong to, in the order their first jobs come.
     static func runs(of jobs: [DepotGitHubJob]) -> [DepotGitHubRun] {
-        let keyed = jobs.compactMap { job -> (key: String, job: DepotGitHubJob)? in
+        jobs.grouped { job -> String? in
             guard let runId = job.runId, !runId.isEmpty, let repository = job.repository else {
                 return nil
             }
-            return ("\(repository.lowercased())/\(runId)", job)
+            return "\(repository.lowercased())/\(runId)"
         }
-        let byKey = Dictionary(grouping: keyed, by: \.key)
-        return keyed.map(\.key).uniqued(by: \.self).compactMap { key in
-            guard let jobs = byKey[key]?.map(\.job), let first = jobs.first,
-                let runId = first.runId, let repository = first.repository
-            else { return nil }
+        .compactMap { jobs in
+            guard let runId = jobs.first?.runId, let repository = jobs.first?.repository else {
+                return nil
+            }
             return DepotGitHubRun(id: runId, repository: repository, jobs: jobs)
         }
-    }
-
-    /// Running while any job runs, else queued or waiting while any is; finished once all are.
-    var status: RunStatus {
-        let statuses = jobs.map(\.runStatus)
-        if !statuses.isEmpty, statuses.allSatisfy({ $0 == .completed }) { return .completed }
-        return [.running, .queued, .waiting].first(where: statuses.contains) ?? .unknown
-    }
-
-    /// A failure if any job failed, else cancelled if any was; a success once every job passed.
-    var conclusion: Conclusion? {
-        guard status == .completed else { return nil }
-        let conclusions = jobs.map { $0.job.conclusion ?? .unknown }
-        if conclusions.contains(where: \.isFailure) { return .failure }
-        if conclusions.contains(.cancelled) { return .cancelled }
-        if !conclusions.allSatisfy(\.hasPassed) { return .unknown }
-        return conclusions.allSatisfy { $0 == .skipped } ? .skipped : .success
     }
 
     /// The workflow's `name:`, else its file's name.
@@ -179,28 +157,19 @@ struct DepotGitHubRun: Sendable {
         return "GitHub Actions"
     }
 
-    /// The run's page on GitHub: a job's page without the job, or one built from the
-    /// repository.
-    var webURL: URL {
-        let fromJob = jobs.lazy.compactMap(\.githubUrl).compactMap { url -> URL? in
-            guard let range = url.range(of: "/job/") else { return nil }
-            return URL(string: String(url[..<range.lowerBound]))
-        }
-        .first
-        return fromJob
-            ?? URL(string: "https://github.com/\(repository)/actions/runs/\(id)")
-            ?? URL(filePath: "/")
-    }
-
     var run: Run {
-        let status = status
         let jobs = jobs.map(\.job)
+        let status = RunStatus.summing(jobs)
         return Run(
             id: id,
             name: name,
             status: status,
-            conclusion: conclusion,
-            webURL: webURL,
+            conclusion: Conclusion.summing(jobs),
+            webURL: Run.gitHubPage(
+                jobPages: self.jobs.compactMap(\.githubUrl),
+                repository: repository,
+                runID: id
+            ),
             createdAt: jobs.compactMap(\.createdAt).min() ?? .distantPast,
             startedAt: jobs.compactMap(\.startedAt).min(),
             completedAt: status == .completed ? jobs.compactMap(\.completedAt).max() : nil
@@ -279,13 +248,6 @@ struct DepotGitHubRepository: Decodable, Sendable {
     let `private`: Bool?
 
     var domain: Repository {
-        let base = Repository(depot: repository)
-        return Repository(
-            id: base.id,
-            name: base.name,
-            fullName: base.fullName,
-            webURL: base.webURL,
-            isPrivate: `private` ?? false
-        )
+        Repository(gitHubFullName: repository, isPrivate: `private` ?? false)
     }
 }
